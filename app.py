@@ -191,43 +191,48 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Fond général */
-    .stApp { background-color: #343541; }
-    
+    /* Fond blanc */
+    .stApp { background-color: #f7f7f8; }
+
+    /* Conteneur central */
+    .main .block-container {
+        max-width: 750px;
+        margin: auto;
+        padding-bottom: 100px; /* espace pour le chat input fixe */
+    }
+
     /* Messages utilisateur — bulle à droite */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         flex-direction: row-reverse;
-        background-color: #10a37f22;
+        background-color: #e8f4fd;
         border-radius: 18px 18px 4px 18px;
         padding: 10px 16px;
-        max-width: 70%;
+        max-width: 75%;
         margin-left: auto;
+        margin-bottom: 12px;
     }
 
     /* Messages assistant — bulle à gauche */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
-        background-color: #444654;
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
         border-radius: 18px 18px 18px 4px;
         padding: 10px 16px;
-        max-width: 70%;
+        max-width: 75%;
         margin-right: auto;
+        margin-bottom: 12px;
     }
 
-    /* Couleur du texte */
+    /* Texte en noir */
     [data-testid="stChatMessage"] p {
-        color: #ececf1 !important;
+        color: #1a1a1a !important;
     }
 
-    /* Titre et description */
-    h1, .stMarkdown p { color: #ececf1 !important; }
-    
-    /* Barre de saisie */
-    [data-testid="stChatInput"] {
-        background-color: #40414f;
-        border-radius: 12px;
-    }
+    /* Titre */
+    h1 { color: #1a1a1a !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 st.title("HLP RAG Assistant")
 st.markdown("""
@@ -237,35 +242,36 @@ This is a **test version**. Ask your question below and the assistant will respo
 
 st.markdown("---")  # horizontal line
 
-# -------------------------
-# 2️⃣ Chat history container
-# -------------------------
+# 1️⃣ Affiche d'abord tout l'historique
+# 1️⃣ Historique
 if "history" not in st.session_state:
     st.session_state.history = []
 
-chat_container = st.container()  # keeps chat messages grouped
+# 2️⃣ Définir le container
+chat_container = st.container()
 
-# -------------------------
-# 3️⃣ User input field
-# -------------------------
+with chat_container:
+    for msg in st.session_state.history:
+        st.chat_message(msg["role"]).write(msg["content"])
+
+# 2️⃣ Ensuite seulement, traite le nouvel input
 user_input = st.chat_input("Ask your question:")
 
 if user_input:
-    # Add user message to history
     st.session_state.history.append({"role": "user", "content": user_input})
 
-    # Create the agent
+    with chat_container:
+        st.chat_message("user").write(user_input)
+
     session_id = "default_session"
     agent = Agent(session_id)
 
-    # Placeholder for assistant response
     placeholder = chat_container.empty()
     response_chunks = []
 
     async def get_response():
         async for chunk in agent.astream(user_input):
             response_chunks.append(chunk)
-            # Display full assistant message
             placeholder.chat_message("assistant").write("".join(response_chunks))
 
     try:
@@ -275,9 +281,5 @@ if user_input:
     except RuntimeError:
         asyncio.run(get_response())
 
-# -------------------------
-# 4️⃣ Display chat history
-# -------------------------
-with chat_container:
-    for msg in st.session_state.history:
-        st.chat_message(msg["role"]).write(msg["content"])
+    # 3️⃣ Sauvegarde la réponse finale
+    st.session_state.history.append({"role": "assistant", "content": "".join(response_chunks)})
