@@ -26,10 +26,10 @@ import os
 
 st.title("HLP Assistant")
 
-API_KEY = os.getenv("GROQ_API_KEY")
-os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY")
-os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY")
-os.environ["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
+API_KEY = os.environ("GROQ_API_KEY")
+os.environ["LANGFUSE_PUBLIC_KEY"] = os.environ("LANGFUSE_PUBLIC_KEY")
+os.environ["LANGFUSE_SECRET_KEY"] = os.environ("LANGFUSE_SECRET_KEY")
+os.environ["LANGFUSE_BASE_URL"] = os.environ("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
 
  
 langfuse_handler = CallbackHandler()
