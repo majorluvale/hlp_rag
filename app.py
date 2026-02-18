@@ -26,9 +26,9 @@ import os
 
 st.title("HLP Assistant")
 
-os.environ["LANGFUSE_PUBLIC_KEY"] = os.environ("LANGFUSE_PUBLIC_KEY")
-os.environ["LANGFUSE_SECRET_KEY"] = os.environ("LANGFUSE_SECRET_KEY")
-os.environ["LANGFUSE_BASE_URL"] = os.environ("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
+os.getenv["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY")
+os.getenv["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY")
+os.getenv["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
 
  
 langfuse_handler = CallbackHandler()
@@ -61,7 +61,7 @@ vector_store = Chroma(
 
 
 
-llm = ChatOpenAI(api_key= os.environ("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1", model="openai/gpt-oss-120b", temperature=0.5)
+llm = ChatOpenAI(api_key= os.getenv("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1", model="openai/gpt-oss-120b", temperature=0.5)
 
 retriever = vector_store.as_retriever(
     search_type    = "similarity",
