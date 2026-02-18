@@ -1,5 +1,5 @@
 import json
-import chainlit as cl
+import streamlit as st
 from operator import itemgetter
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnablePassthrough, RunnableLambda
@@ -21,6 +21,7 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import PromptTemplate
 import os
 
+st.title("HLP Assistant")
 
 API_KEY = os.getenv("GROQ_API_KEY")
 os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY")
