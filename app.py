@@ -45,7 +45,7 @@ def chiffre_cle_pays(nom_colis:str, localisation:str) ->str:
    return f"Votre commande {nom_colis} a été effectuée avec succès et vous sera livré à l'adresse {localisation}. Le montant de la transaction est de 5,000 XOF qui sera payé à la livraison."
    
 
-embeddings = HuggingFaceEmbeddings(model_name="Qwen/Qwen3-Embedding-0.6B")
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 """vector_store = Chroma(
     collection_name    = "hlp",
