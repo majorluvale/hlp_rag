@@ -19,6 +19,9 @@ from langchain_core.messages import BaseMessage, AIMessage
 from pydantic import BaseModel, Field
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import PromptTemplate
+from langfuse import Langfuse
+from langfuse.langchain import CallbackHandler
+
 import os
 
 st.title("HLP Assistant")
@@ -27,9 +30,7 @@ API_KEY = os.getenv("GROQ_API_KEY")
 os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY")
 os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY")
 os.environ["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
-from langfuse import Langfuse
 
-from langfuse.langchain import CallbackHandler
  
 langfuse_handler = CallbackHandler()
 
