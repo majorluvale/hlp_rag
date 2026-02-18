@@ -182,93 +182,50 @@ class Agent:
 
 # Input utilisateur
 # -------------------------
+# 1️⃣ Page configuration
 # -------------------------
 st.set_page_config(
     page_title="HLP RAG Assistant",
-    layout="wide",
+    layout="centered",  # or "wide"
 )
 
-# -------------------------
-# CSS personnalisé pour le style ChatGPT
-# -------------------------
 st.markdown("""
 <style>
-    .main { background-color: #343541; }
+    /* Fond général */
+    .stApp { background-color: #343541; }
     
-    .chat-wrapper {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        padding: 20px 0;
-    }
-    
-    /* Message utilisateur — aligné à droite */
-    .user-row {
-        display: flex;
-        justify-content: flex-end;
-        align-items: flex-start;
-        gap: 10px;
-    }
-    .user-bubble {
-        background-color: #10a37f;
-        color: white;
-        padding: 12px 18px;
+    /* Messages utilisateur — bulle à droite */
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+        flex-direction: row-reverse;
+        background-color: #10a37f22;
         border-radius: 18px 18px 4px 18px;
-        max-width: 60%;
-        font-size: 15px;
-        line-height: 1.5;
-        word-wrap: break-word;
-    }
-    .user-avatar {
-        width: 36px;
-        height: 36px;
-        background-color: #10a37f;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: bold;
-        font-size: 14px;
-        flex-shrink: 0;
+        padding: 10px 16px;
+        max-width: 70%;
+        margin-left: auto;
     }
 
-    /* Message assistant — aligné à gauche */
-    .assistant-row {
-        display: flex;
-        justify-content: flex-start;
-        align-items: flex-start;
-        gap: 10px;
-    }
-    .assistant-bubble {
+    /* Messages assistant — bulle à gauche */
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
         background-color: #444654;
-        color: #ececf1;
-        padding: 12px 18px;
         border-radius: 18px 18px 18px 4px;
-        max-width: 60%;
-        font-size: 15px;
-        line-height: 1.5;
-        word-wrap: break-word;
-    }
-    .assistant-avatar {
-        width: 36px;
-        height: 36px;
-        background-color: #19c37d;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: bold;
-        font-size: 14px;
-        flex-shrink: 0;
+        padding: 10px 16px;
+        max-width: 70%;
+        margin-right: auto;
     }
 
-    /* Champ de saisie en bas */
-    .stChatInput { background-color: #40414f; }
+    /* Couleur du texte */
+    [data-testid="stChatMessage"] p {
+        color: #ececf1 !important;
+    }
+
+    /* Titre et description */
+    h1, .stMarkdown p { color: #ececf1 !important; }
     
-    h1 { color: #ececf1 !important; }
-    p, .stMarkdown { color: #c5c5d2 !important; }
+    /* Barre de saisie */
+    [data-testid="stChatInput"] {
+        background-color: #40414f;
+        border-radius: 12px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -278,74 +235,38 @@ st.markdown("""
 This is a **test version**. Ask your question below and the assistant will respond.
 """)
 
-st.markdown("---")
+st.markdown("---")  # horizontal line
 
 # -------------------------
-# Historique
+# 2️⃣ Chat history container
 # -------------------------
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# -------------------------
-# Fonction d'affichage d'un message
-# -------------------------
-def render_message(role, content):
-    if role == "user":
-        st.markdown(f"""
-        <div class="user-row">
-            <div class="user-bubble">{content}</div>
-            <div class="user-avatar">U</div>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div class="assistant-row">
-            <div class="assistant-avatar">AI</div>
-            <div class="assistant-bubble">{content}</div>
-        </div>
-        """, unsafe_allow_html=True)
+chat_container = st.container()  # keeps chat messages grouped
 
 # -------------------------
-# Affichage de l'historique existant
-# -------------------------
-chat_container = st.container()
-
-with chat_container:
-    st.markdown('<div class="chat-wrapper">', unsafe_allow_html=True)
-    for msg in st.session_state.history:
-        render_message(msg["role"], msg["content"])
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# -------------------------
-# Saisie utilisateur
+# 3️⃣ User input field
 # -------------------------
 user_input = st.chat_input("Ask your question:")
 
 if user_input:
-    # Ajouter la question à l'historique et l'afficher
+    # Add user message to history
     st.session_state.history.append({"role": "user", "content": user_input})
 
-    with chat_container:
-        render_message("user", user_input)
-
-    # Créer l'agent
+    # Create the agent
     session_id = "default_session"
     agent = Agent(session_id)
 
-    # Streaming de la réponse
+    # Placeholder for assistant response
+    placeholder = chat_container.empty()
     response_chunks = []
-    response_placeholder = st.empty()
 
     async def get_response():
         async for chunk in agent.astream(user_input):
             response_chunks.append(chunk)
-            full_response = "".join(response_chunks)
-            response_placeholder.markdown(f"""
-            <div class="assistant-row">
-                <div class="assistant-avatar">AI</div>
-                <div class="assistant-bubble">{full_response}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            # Display full assistant message
+            placeholder.chat_message("assistant").write("".join(response_chunks))
 
     try:
         loop = asyncio.get_running_loop()
@@ -354,6 +275,9 @@ if user_input:
     except RuntimeError:
         asyncio.run(get_response())
 
-    # Sauvegarder la réponse finale dans l'historique
-    final_response = "".join(response_chunks)
-    st.session_state.history.append({"role": "assistant", "content": final_response})
+# -------------------------
+# 4️⃣ Display chat history
+# -------------------------
+with chat_container:
+    for msg in st.session_state.history:
+        st.chat_message(msg["role"]).write(msg["content"])
