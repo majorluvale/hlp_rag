@@ -47,12 +47,6 @@ def chiffre_cle_pays(nom_colis:str, localisation:str) ->str:
 
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-"""vector_store = Chroma(
-    collection_name    = "hlp",
-    embedding_function = embeddings,
-    persist_directory  = "./chroma_langchain_db"
-)"""
-
 vector_store = Chroma(
     collection_name="hlp",
     embedding_function=embeddings,
@@ -186,29 +180,30 @@ class Agent:
         if chunk and hasattr(chunk, "content"):
             yield chunk.content
 
-st.title("HLP RAG Assistant")
-
 # Input utilisateur
-user_input = st.text_input("Please feel free to ask a question:")
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-if user_input:
-    # Créer la session
+user_message = st.chat_input("Ask your question :")
+if user_message:
+    st.session_state.history.append({"role": "user", "content": user_message})
     session_id = "default_session"
     agent = Agent(session_id)
-
-    # Placeholder pour afficher la réponse progressivement
-    placeholder = st.empty()
+    placeholder = st.chat_message("assistant")
     response_chunks = []
 
     async def get_response():
-        async for chunk in agent.astream(user_input):
+        async for chunk in agent.astream(user_message):
             response_chunks.append(chunk)
-            placeholder.text("".join(response_chunks))
+            placeholder.write("".join(response_chunks))
 
-    # Gestion du loop asyncio dans Streamlit
     try:
         loop = asyncio.get_running_loop()
         task = loop.create_task(get_response())
         loop.run_until_complete(task)
     except RuntimeError:
         asyncio.run(get_response())
+
+# Affichage de l'historique
+for msg in st.session_state.history:
+    st.chat_message(msg["role"]).write(msg["content"])
