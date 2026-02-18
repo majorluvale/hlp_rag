@@ -197,36 +197,26 @@ This is a **test version**. Ask your question below and the assistant will respo
 
 st.markdown("---")  # horizontal line
 
-# -------------------------
-# 2️⃣ Chat history container
-# -------------------------
 if "history" not in st.session_state:
     st.session_state.history = []
 
-chat_container = st.container()  # keeps chat messages grouped
-
-# -------------------------
-# 3️⃣ User input field
-# -------------------------
 user_input = st.chat_input("Ask your question:")
 
 if user_input:
-    # Add user message to history
+    # Add user question to history first
     st.session_state.history.append({"role": "user", "content": user_input})
 
     # Create the agent
     session_id = "default_session"
     agent = Agent(session_id)
 
-    # Placeholder for assistant response
-    placeholder = chat_container.empty()
-    response_chunks = []
+    # Collect assistant response
+    response_text = ""
 
     async def get_response():
+        nonlocal response_text
         async for chunk in agent.astream(user_input):
-            response_chunks.append(chunk)
-            # Display full assistant message
-            placeholder.chat_message("assistant").write("".join(response_chunks))
+            response_text += chunk
 
     try:
         loop = asyncio.get_running_loop()
@@ -235,9 +225,9 @@ if user_input:
     except RuntimeError:
         asyncio.run(get_response())
 
-# -------------------------
-# 4️⃣ Display chat history
-# -------------------------
-with chat_container:
-    for msg in st.session_state.history:
-        st.chat_message(msg["role"]).write(msg["content"])
+    # Add assistant response to history
+    st.session_state.history.append({"role": "assistant", "content": response_text})
+
+# Display full chat history in chronological order
+for msg in st.session_state.history:
+    st.chat_message(msg["role"]).write(msg["content"])
