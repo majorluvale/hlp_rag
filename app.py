@@ -21,14 +21,14 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import PromptTemplate
 from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
-
+import asyncio
 import os
 
 st.title("HLP Assistant")
-
-os.getenv["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY")
-os.getenv["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY")
-os.getenv["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+LANGFUSE_BASE_URL = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
 
  
 langfuse_handler = CallbackHandler()
@@ -61,7 +61,7 @@ vector_store = Chroma(
 
 
 
-llm = ChatOpenAI(api_key= os.getenv("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1", model="openai/gpt-oss-120b", temperature=0.5)
+llm = ChatOpenAI(api_key= GROQ_API_KEY, base_url="https://api.groq.com/openai/v1", model="openai/gpt-oss-120b", temperature=0.5)
 
 retriever = vector_store.as_retriever(
     search_type    = "similarity",
@@ -186,16 +186,29 @@ class Agent:
         if chunk and hasattr(chunk, "content"):
             yield chunk.content
 
-@cl.on_message
-async def main(message: cl.Message):
-  session_id = message.thread_id
+st.title("HLP RAG Assistant")
 
-  agent = Agent(session_id)
+# Input utilisateur
+user_input = st.text_input("Please feel free to ask a question:")
 
-  response_message = cl.Message(content="")
+if user_input:
+    # Créer la session
+    session_id = "default_session"
+    agent = Agent(session_id)
 
-  async for chunk in agent.astream(message.content):
-    if chunk:
-      await response_message.stream_token(chunk)
-  
-  await response_message.update()
+    # Placeholder pour afficher la réponse progressivement
+    placeholder = st.empty()
+    response_chunks = []
+
+    async def get_response():
+        async for chunk in agent.astream(user_input):
+            response_chunks.append(chunk)
+            placeholder.text("".join(response_chunks))
+
+    # Gestion du loop asyncio dans Streamlit
+    try:
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(get_response())
+        loop.run_until_complete(task)
+    except RuntimeError:
+        asyncio.run(get_response())

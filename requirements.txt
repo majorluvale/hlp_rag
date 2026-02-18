@@ -9,3 +9,4 @@ pydantic
 sentence-transformers
 huggingface-hub
 langfuse
+asyncio
