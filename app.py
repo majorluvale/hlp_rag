@@ -24,7 +24,6 @@ from langfuse.langchain import CallbackHandler
 import asyncio
 import os
 
-st.title("HLP Assistant")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
@@ -55,7 +54,7 @@ vector_store = Chroma(
 
 
 
-llm = ChatOpenAI(api_key= GROQ_API_KEY, base_url="https://api.groq.com/openai/v1", model="openai/gpt-oss-120b", temperature=0.5)
+llm = ChatOpenAI(api_key= GROQ_API_KEY, base_url="https://api.groq.com/openai/v1", model="openai/gpt-oss-120b", temperature=0.5, max_tokens=500)
 
 retriever = vector_store.as_retriever(
     search_type    = "similarity",
@@ -90,12 +89,13 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
         self.messages = []
 
 prompt = PromptTemplate.from_template("""
-Tu es HLP, un assistant IA spécialisé dans le domaine de HLP, housing land and property area of responsibility.
-Ton rôle est de répondre à toutes les questions en rapport avec HLP (housing land and property area of responsibility) en se basant sur la base de connaissances à ta dispositions. Tu ne réponds qu'aux questions liées au HLP.
-Ne mentionne pas les guides auxquels tu as accès. Tu te limite à repondre.
-HLP se traduit en français par LTP ou LTB qui signifie Logement, Terre et Biens ou Logement, Terre et Propriété.
-Historique de conversation :
-{chat_history}
+You are HLP, an AI assistant specialized in the HLP field, the Housing, Land, and Property area of responsibility.
+Your role is to answer all questions related to HLP (Housing, Land, and Property area of responsibility) based on the knowledge base available to you. You only respond to questions related to HLP.
+Do not mention the guides you have access to. You limit yourself to answering.
+HLP is translated into French as LTP or LTB, which stands for Logement, Terre et Biens or Logement, Terre et Propriété.
+Answer in the language of the question.
+                                      
+Conversation history: {chat_history}
 Question: {input}
 Context: {context}
 Réponse:
@@ -181,21 +181,52 @@ class Agent:
             yield chunk.content
 
 # Input utilisateur
+# -------------------------
+# 1️⃣ Page configuration
+# -------------------------
+st.set_page_config(
+    page_title="HLP RAG Assistant",
+    layout="centered",  # or "wide"
+)
+
+st.title("HLP RAG Assistant")
+st.markdown("""
+**Description**: This assistant has been trained on HLP (Housing, Land, and Property) documents.  
+This is a **test version**. Ask your question below and the assistant will respond.
+""")
+
+st.markdown("---")  # horizontal line
+
+# -------------------------
+# 2️⃣ Chat history container
+# -------------------------
 if "history" not in st.session_state:
     st.session_state.history = []
 
-user_message = st.chat_input("Ask your question :")
-if user_message:
-    st.session_state.history.append({"role": "user", "content": user_message})
+chat_container = st.container()  # keeps chat messages grouped
+
+# -------------------------
+# 3️⃣ User input field
+# -------------------------
+user_input = st.chat_input("Ask your question:")
+
+if user_input:
+    # Add user message to history
+    st.session_state.history.append({"role": "user", "content": user_input})
+
+    # Create the agent
     session_id = "default_session"
     agent = Agent(session_id)
-    placeholder = st.chat_message("assistant")
+
+    # Placeholder for assistant response
+    placeholder = chat_container.empty()
     response_chunks = []
 
     async def get_response():
-        async for chunk in agent.astream(user_message):
+        async for chunk in agent.astream(user_input):
             response_chunks.append(chunk)
-            placeholder.write("".join(response_chunks))
+            # Display full assistant message
+            placeholder.chat_message("assistant").write("".join(response_chunks))
 
     try:
         loop = asyncio.get_running_loop()
@@ -204,6 +235,9 @@ if user_message:
     except RuntimeError:
         asyncio.run(get_response())
 
-# Affichage de l'historique
-for msg in st.session_state.history:
-    st.chat_message(msg["role"]).write(msg["content"])
+# -------------------------
+# 4️⃣ Display chat history
+# -------------------------
+with chat_container:
+    for msg in st.session_state.history:
+        st.chat_message(msg["role"]).write(msg["content"])
