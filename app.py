@@ -92,7 +92,7 @@ langfuse = Langfuse()
 
 # Get production prompt
 prompt = langfuse.get_prompt(
-   name = "hlp_prompt"
+   name = "hlp_prompt",
    prompt = """
                 You are HLP, an AI assistant specialized in the HLP field, the Housing, Land, and Property area of responsibility.
                 Your role is to answer all questions related to HLP (Housing, Land, and Property area of responsibility) based on the knowledge base available to you. You only respond to questions related to HLP.
@@ -107,7 +107,7 @@ prompt = langfuse.get_prompt(
                 """,
     config={
         "model":"openai/gpt-oss-120b",
-        "temperature": 0.5,
+        "temperature": 0.5
     },
     labels=["production"]
     )
