@@ -23,6 +23,7 @@ from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
 import asyncio
 import os
+import prompt_text
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
@@ -32,7 +33,8 @@ LANGFUSE_BASE_URL = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
  
 langfuse_handler = CallbackHandler()
 
-
+PROMPT = [""
+""]
 from langchain.tools import tool
 @tool
 def chiffre_cle_pays(nom_colis:str, localisation:str) ->str:
@@ -88,12 +90,8 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
     def clear(self) -> None:
         self.messages = []
 
-prompt = PromptTemplate.from_template("""
-You are HLP, an AI assistant specialized in the HLP field, the Housing, Land, and Property area of responsibility.
-Your role is to answer all questions related to HLP (Housing, Land, and Property area of responsibility) based on the knowledge base available to you. You only respond to questions related to HLP.
-Do not mention the guides you have access to. You limit yourself to answering.
-HLP is translated into French as LTP or LTB, which stands for Logement, Terre et Biens or Logement, Terre et Propriété.
-Answer in the language of the question.
+prompt = PromptTemplate.from_template(prompt_text, """
+
                                       
 Conversation history: {chat_history}
 Question: {input}
