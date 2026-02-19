@@ -157,6 +157,10 @@ class Agent:
     
     # Exécution normale de l'outil si autorisé
     tool_map = {tool.name: tool for tool in tools}
+    if tool_name not in tool_map:
+       print(f"Tool inconnu appelé : {tool_name}")
+    return "LLM tried to call a non-existent tool"
+  
     tool = tool_map[tool_invocation["type"]]
     
     return RunnablePassthrough.assign(output=itemgetter("args") | tool)
