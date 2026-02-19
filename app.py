@@ -23,7 +23,6 @@ from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
 import asyncio
 import os
-import prompt_text
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
@@ -89,6 +88,9 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
 
     def clear(self) -> None:
         self.messages = []
+prompt_text = ""
+with open('prompt_text.txt', 'r') as f:
+   prompt_text = f.read()
 
 prompt = PromptTemplate.from_template(prompt_text, """
 
