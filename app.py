@@ -47,7 +47,7 @@ def chiffre_cle_pays(nom_colis:str, localisation:str) ->str:
 embeddings = HuggingFaceEmbeddings(
    model_name="sentence-transformers/all-MiniLM-L6-v2",
    model_kwargs = {"device": "cpu"},
-   encode_kwargs = {"normalize_embeddings": False},
+   encode_kwargs = {"normalize_embeddings": True},
    )
 
 vector_store = Chroma(
