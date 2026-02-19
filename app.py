@@ -69,7 +69,7 @@ retriever = vector_store.as_retriever(
 
 retriever_tool = create_retriever_tool(
     retriever,
-    "hlp",
+    "hlp_aor",
     "Ceci est une base de connaissances large sur tout ce qui concerne la planification humanitaire, focalisé sur le cluster protection en générale et en particulier le logement, terre et propriétés (Housing, land and property area of responsibility, or HLP AoR)",
     document_separator = "\n\n"
 )
@@ -96,7 +96,7 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
 prompt = PromptTemplate.from_template("""
 You are HLP, an AI assistant specialized in Housing, Land, and Property (HLP/LTP/LTB).
 Answer only HLP-related questions.
-Use the tool "hlp" exactly as written. Do not translate or alter the tool name.
+Use the tool "hlp_aor" exactly as written. Do not translate or alter the tool name.
 Answer in the language of the question.
 
 Context:
@@ -140,7 +140,7 @@ class Agent:
         self.get_session_history,
         input_messages_key="input",
         history_messages_key="chat_history",
-    ).with_config(RunnableConfig(run_name="hlp", callbacks=[langfuse_handler]))
+    ).with_config(RunnableConfig(run_name="hlp_aor", callbacks=[langfuse_handler]))
 
   def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
     if session_id not in store:
@@ -157,10 +157,6 @@ class Agent:
     
     # Exécution normale de l'outil si autorisé
     tool_map = {tool.name: tool for tool in tools}
-    if tool_name not in tool_map:
-       print(f"Tool inconnu appelé : {tool_name}")
-    return "LLM tried to call a non-existent tool"
-  
     tool = tool_map[tool_invocation["type"]]
     
     return RunnablePassthrough.assign(output=itemgetter("args") | tool)
