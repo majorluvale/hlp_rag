@@ -92,14 +92,19 @@ prompt_text = ""
 with open('prompt_text.txt', 'r') as f:
    prompt_text = f.read()
 
-prompt = PromptTemplate.from_template(prompt_text, """
+#prompt = PromptTemplate.from_template(prompt_text, """
 
                                       
-Conversation history: {chat_history}
-Question: {input}
-Context: {context}
-Réponse:
-""")
+#Conversation history: {chat_history}
+#Question: {input}
+#Context: {context}
+#Réponse:
+#""")
+# Initialize Langfuse client
+langfuse = Langfuse()
+
+# Get production prompt
+prompt = langfuse.get_prompt("hlp_prompt")
 
 class Agent:
 
