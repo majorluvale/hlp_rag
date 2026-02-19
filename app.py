@@ -91,7 +91,26 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
 langfuse = Langfuse()
 
 # Get production prompt
-prompt = langfuse.get_prompt("hlp_prompt")
+prompt = langfuse.get_prompt(
+   name = "hlp_prompt"
+   prompt = """
+                You are HLP, an AI assistant specialized in the HLP field, the Housing, Land, and Property area of responsibility.
+                Your role is to answer all questions related to HLP (Housing, Land, and Property area of responsibility) based on the knowledge base available to you. You only respond to questions related to HLP.
+                Do not mention the guides you have access to. You limit yourself to answering.
+                HLP is translated into French as LTP or LTB, which stands for Logement, Terre et Biens or Logement, Terre et Propriété.
+                Answer in the language of the question.
+                                                    
+                Conversation history: {chat_history}
+                Question: {input}
+                Context: {context}
+                Réponse:
+                """,
+    config={
+        "model":"openai/gpt-oss-120b",
+        "temperature": 0.5,
+    },
+    labels=["production"]
+    )
 
 
 
