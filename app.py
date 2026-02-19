@@ -32,8 +32,7 @@ LANGFUSE_BASE_URL = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
  
 langfuse_handler = CallbackHandler()
 
-PROMPT = [""
-""]
+
 from langchain.tools import tool
 @tool
 def chiffre_cle_pays(nom_colis:str, localisation:str) ->str:
@@ -45,9 +44,7 @@ def chiffre_cle_pays(nom_colis:str, localisation:str) ->str:
    return f"Votre commande {nom_colis} a été effectuée avec succès et vous sera livré à l'adresse {localisation}. Le montant de la transaction est de 5,000 XOF qui sera payé à la livraison."
    
 
-embeddings = HuggingFaceEmbeddings(
-   model_name="sentence-transformers/all-MiniLM-L6-v2",
-   model_kwargs={"device": "cpu"})
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 vector_store = Chroma(
     collection_name="hlp",
@@ -91,19 +88,18 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
     def clear(self) -> None:
         self.messages = []
 
-#prompt = PromptTemplate.from_template(prompt_text, """
-
+prompt = PromptTemplate.from_template("""
+You are HLP, an AI assistant specialized in the HLP field, the Housing, Land, and Property area of responsibility.
+Your role is to answer all questions related to HLP (Housing, Land, and Property area of responsibility) based on the knowledge base available to you. You only respond to questions related to HLP.
+Do not mention the guides you have access to. You limit yourself to answering.
+HLP is translated into French as LTP or LTB, which stands for Logement, Terre et Biens or Logement, Terre et Propriété.
+Answer in the language of the question.
                                       
-#Conversation history: {chat_history}
-#Question: {input}
-#Context: {context}
-#Réponse:
-#""")
-# Initialize Langfuse client
-langfuse = Langfuse()
-
-# Get production prompt
-prompt = langfuse.get_prompt("hlp_prompt")
+Conversation history: {chat_history}
+Question: {input}
+Context: {context}
+Réponse:
+""")
 
 class Agent:
 
@@ -116,7 +112,7 @@ class Agent:
     
     self.call_tool_list = RunnableLambda(self.call_tool).map()
 
-    self.chain = self.prompt | self.llm | RunnableLambda(self.route)
+    self.chain = self.prompt | self.llm | self.route
 
     self.session_history = None
 
@@ -161,19 +157,16 @@ class Agent:
         "chat_history": self.session_history.messages
     }
 
-
-    def route(self, message: AIMessage):
-        # Cas 1 : pas d’outil → réponse finale
-        if not message.tool_calls:
-            return message.content
-
-        # Cas 2 : appel d’outil
-        tool_outputs = message.tool_calls
-        context = self.parse_context(tool_outputs)
-
-        # Reboucle dans la chaîne
-        return self.chain.invoke(context)
-
+  def route(self, message: AIMessage):
+    if message.tool_calls == []:    # le llm n'a pas besoin de faire une action pour repondre 
+        return StrOutputParser()
+    else:
+        return (
+            JsonOutputToolsParser()
+            | self.call_tool_list
+            | self.parse_context
+            | self.chain
+        )
   
   async def astream(self, question):
     self.question = question
