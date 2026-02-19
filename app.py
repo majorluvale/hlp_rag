@@ -35,13 +35,13 @@ langfuse_handler = CallbackHandler()
 
 from langchain.tools import tool
 @tool
-def chiffre_cle_pays(nom_colis:str, localisation:str) ->str:
-   """Permet de commander un colis à livrer à ne location spécifique
+def chiffre_cle_pays(nom_pays:str, context_humanitaire:str) ->str:
+   """Permet d'afficher le contexte humanitaire HLP par pays
    Args:
-        nom_colis: Nom du colis qui est commandé
-        localisation: Lieu où le colis commandé doit etre livré.
+        nom_pays: Nom du pays
+        context_humanitaire: Contexte humanitaire.
    """
-   return f"Votre commande {nom_colis} a été effectuée avec succès et vous sera livré à l'adresse {localisation}. Le montant de la transaction est de 5,000 XOF qui sera payé à la livraison."
+   return f"Vous avez demandé le contexte pour le pays commande {nom_pays}. Voici le contexte du pays {context_humanitaire}"
    
 
 embeddings = HuggingFaceEmbeddings(
@@ -51,7 +51,7 @@ embeddings = HuggingFaceEmbeddings(
    )
 
 vector_store = Chroma(
-    collection_name="hlp",
+    collection_name="hlp_aor",
     embedding_function=embeddings,
     persist_directory  = "./chroma_langchain_db"
 )
@@ -70,11 +70,11 @@ retriever = vector_store.as_retriever(
 retriever_tool = create_retriever_tool(
     retriever,
     "hlp_aor",
-    "Ceci est une base de connaissances large sur tout ce qui concerne la planification humanitaire, focalisé sur le cluster protection en générale et en particulier le logement, terre et propriétés (Housing, land and property area of responsibility, or HLP AoR)",
+    "This is a tool focused on HLP. It will answer any question related to HLP and seek answers from the vector database",
     document_separator = "\n\n"
 )
 
-tools = [retriever_tool]
+tools = [retriever_tool, chiffre_cle_pays]
 
 llm = llm.bind_tools(tools)
 
@@ -97,7 +97,9 @@ prompt = PromptTemplate.from_template("""
 You are HLP, an AI assistant specialized in Housing, Land, and Property (HLP/LTP/LTB).
 Answer only HLP-related questions.
 Use the tool "hlp_aor" exactly as written. Do not translate or alter the tool name.
-Answer in the language of the question.
+Answer in the language of the question. 
+
+When you can't find the answer, say politelly that you don't have that information.
 
 Context:
 - Humanitarian Reset: clusters simplified; Shelter, CCCM, and HLP AoR integrated into the new Shelter, Land and Site Coordination Cluster (SLSCC).
