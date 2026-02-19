@@ -116,7 +116,7 @@ class Agent:
     
     self.call_tool_list = RunnableLambda(self.call_tool).map()
 
-    self.chain = self.prompt | self.llm | self.route
+    self.chain = self.prompt | self.llm | RunnableLambda(self.route)
 
     self.session_history = None
 
@@ -161,16 +161,19 @@ class Agent:
         "chat_history": self.session_history.messages
     }
 
-  def route(self, message: AIMessage):
-    if message.tool_calls == []:    # le llm n'a pas besoin de faire une action pour repondre 
-        return StrOutputParser()
-    else:
-        return (
-            JsonOutputToolsParser()
-            | self.call_tool_list
-            | self.parse_context
-            | self.chain
-        )
+
+    def route(self, message: AIMessage):
+        # Cas 1 : pas d’outil → réponse finale
+        if not message.tool_calls:
+            return message.content
+
+        # Cas 2 : appel d’outil
+        tool_outputs = message.tool_calls
+        context = self.parse_context(tool_outputs)
+
+        # Reboucle dans la chaîne
+        return self.chain.invoke(context)
+
   
   async def astream(self, question):
     self.question = question
