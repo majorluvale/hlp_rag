@@ -44,7 +44,7 @@ def chiffre_cle_pays(nom_colis:str, localisation:str) ->str:
    return f"Votre commande {nom_colis} a été effectuée avec succès et vous sera livré à l'adresse {localisation}. Le montant de la transaction est de 5,000 XOF qui sera payé à la livraison."
    
 
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embeddings = HuggingFaceEmbeddings(model_name="Qwen/Qwen3-Embedding-0.6B")
 
 vector_store = Chroma(
     collection_name="hlp",
@@ -87,8 +87,6 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
 
     def clear(self) -> None:
         self.messages = []
-# Initialize Langfuse client
-langfuse = Langfuse()
 
 # Get production prompt
 prompt = PromptTemplate.from_template("""
