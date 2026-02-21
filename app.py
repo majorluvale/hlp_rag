@@ -233,22 +233,19 @@ class Agent:
 # -------------------------
 st.set_page_config(
     page_title="HLP RAG Assistant",
-    layout="centered",  # or "wide"
+    layout="centered",
 )
 
 st.markdown("""
 <style>
-    /* Fond blanc */
     .stApp { background-color: #f7f7f8; }
 
-    /* Conteneur central */
     .main .block-container {
         max-width: 750px;
         margin: auto;
-        padding-bottom: 100px; /* espace pour le chat input fixe */
+        padding-bottom: 100px;
     }
 
-    /* Messages utilisateur — bulle à droite */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         flex-direction: row-reverse;
         background-color: #e8f4fd;
@@ -259,7 +256,6 @@ st.markdown("""
         margin-bottom: 12px;
     }
 
-    /* Messages assistant — bulle à gauche */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -270,13 +266,22 @@ st.markdown("""
         margin-bottom: 12px;
     }
 
-    /* Texte en noir */
     [data-testid="stChatMessage"] p {
         color: #1a1a1a !important;
     }
 
-    /* Titre */
     h1 { color: #1a1a1a !important; }
+
+    /* ✅ Style pour le bloc sources */
+    .sources-block {
+        margin-top: 10px;
+        padding: 8px 12px;
+        background-color: #f0f4ff;
+        border-left: 3px solid #4a90d9;
+        border-radius: 6px;
+        font-size: 0.85em;
+        color: #333;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -287,21 +292,21 @@ st.markdown("""
 This is a **test version**. Ask your question below and the assistant will respond.
 """)
 
-st.markdown("---")  # horizontal line
+st.markdown("---")
 
-# 1️⃣ Affiche d'abord tout l'historique
-# 1️⃣ Historique
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# 2️⃣ Définir le container
 chat_container = st.container()
 
 with chat_container:
     for msg in st.session_state.history:
-        st.chat_message(msg["role"]).write(msg["content"])
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+            # ✅ Affiche les sources sauvegardées si présentes
+            if msg["role"] == "assistant" and msg.get("sources"):
+                st.markdown(msg["sources"], unsafe_allow_html=True)
 
-# 2️⃣ Ensuite seulement, traite le nouvel input
 user_input = st.chat_input("Ask your question:")
 
 if user_input:
@@ -319,7 +324,11 @@ if user_input:
     async def get_response():
         async for chunk in agent.astream(user_input):
             response_chunks.append(chunk)
-            placeholder.chat_message("assistant").write("".join(response_chunks))
+            # ✅ Affiche uniquement la réponse (sans les sources) pendant le stream
+            main_text = "".join(response_chunks)
+            if "---" in main_text:
+                main_text = main_text.split("---")[0]
+            placeholder.chat_message("assistant").write(main_text)
 
     try:
         loop = asyncio.get_running_loop()
@@ -328,5 +337,38 @@ if user_input:
     except RuntimeError:
         asyncio.run(get_response())
 
-    # 3️⃣ Sauvegarde la réponse finale
-    st.session_state.history.append({"role": "assistant", "content": "".join(response_chunks)})
+    full_response = "".join(response_chunks)
+
+    # ✅ Séparer réponse et sources
+    sources_html = ""
+    if "---" in full_response:
+        parts = full_response.split("---", 1)
+        answer_text = parts[0].strip()
+        sources_raw = parts[1].strip()  # ex: "📚 **Sources :**\n• fichier.pdf — page 3"
+
+        # Formater en HTML propre
+        lines = sources_raw.replace("📚 **Sources :**", "").strip().split("\n")
+        sources_items = "".join(
+            f"<div>📄 {line.strip().lstrip('•').strip()}</div>"
+            for line in lines if line.strip()
+        )
+        sources_html = f"""
+        <div class='sources-block'>
+            <strong>📚 Sources</strong>
+            {sources_items}
+        </div>
+        """
+
+        # ✅ Remplacer le placeholder avec réponse + sources
+        with placeholder.chat_message("assistant"):
+            st.write(answer_text)
+            st.markdown(sources_html, unsafe_allow_html=True)
+    else:
+        answer_text = full_response
+
+    # ✅ Sauvegarder réponse et sources séparément dans l'historique
+    st.session_state.history.append({
+        "role": "assistant",
+        "content": answer_text,
+        "sources": sources_html  # peut être "" si pas de sources
+    })
