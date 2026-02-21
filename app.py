@@ -96,17 +96,11 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
 prompt = PromptTemplate.from_template("""
 You are HLP, an AI assistant specialized in Housing, Land, and Property (HLP/LTP/LTB).
 Answer only HLP-related questions.
-Answer in the language of the question. 
-For transparency always provide the source you used to generate the response. Source will be document name from the vector database + page. Only source documents you have in the vector database
-                                      otherwise you will be hallucinating.
+Answer in the language of the question. For transparency always provide the source you used to generate the response. Source will be document name from the vector database + page. Only source documents you have in the vector database otherwise you will be hallucinating.
 If a user also ask for the source documents, please provide them.
 
 When you can't find the answer, say politelly that you don't have that information.
 Remove in the output any white characters such as <br>•, etc.
-POLR means Provider of Last Resort.
-                                      
-
-                
 
 Context:
 - Humanitarian Reset: clusters simplified; Shelter, CCCM, and HLP AoR integrated into the new Shelter, Land and Site Coordination Cluster (SLSCC).
@@ -133,7 +127,6 @@ class Agent:
     self.tools = tools
     self.llm = llm
     self.prompt = prompt
-    self.sources = []
     
     self.call_tool_list = RunnableLambda(self.call_tool).map()
 
@@ -172,17 +165,6 @@ class Agent:
     return RunnablePassthrough.assign(output=itemgetter("args") | tool)
 
   def parse_context(self, get_mo_output: list) -> str:
-    self.sources = []
-    for item in get_mo_output:
-        if item.get("type") == "agriculture":
-            # Récupérer les docs avec métadonnées via le retriever
-            query = item.get("args", {}).get("query", self.question)
-            docs = retriever.invoke(query)
-            for doc in docs:
-                source = doc.metadata.get("source", "")
-                page = doc.metadata.get("page", "")
-                if source and source not in [s["source"] for s in self.sources]:
-                    self.sources.append({"source": source, "page": page})
 
     self.session_history.add_message(
         AIMessage(json.dumps(get_mo_output, indent=2)))
@@ -203,22 +185,9 @@ class Agent:
             | self.parse_context
             | self.chain
         )
-    
-   # ✅ Formate les sources en texte lisible
-  def format_sources(self) -> str:
-    if not self.sources:
-        return ""
-    lines = ["\n\n---\n📚 **Sources :**"]
-    for s in self.sources:
-        line = f"• {s['source']}"
-        if s["page"] != "":
-            line += f" — page {s['page']}"
-        lines.append(line)
-    return "\n".join(lines)
   
   async def astream(self, question):
     self.question = question
-    self.sources = []
     async for event in self.conversation.astream_events(
         {"input": self.question, "chat_history": [], "context": ""},
         config=self.config,
@@ -228,10 +197,6 @@ class Agent:
         chunk = event["data"]["chunk"]
         if chunk and hasattr(chunk, "content"):
             yield chunk.content
-    
-    sources_text = self.format_sources()
-    if sources_text:
-        yield sources_text    
 
 # Input utilisateur
 # -------------------------
@@ -239,19 +204,22 @@ class Agent:
 # -------------------------
 st.set_page_config(
     page_title="HLP RAG Assistant",
-    layout="centered",
+    layout="centered",  # or "wide"
 )
 
 st.markdown("""
 <style>
+    /* Fond blanc */
     .stApp { background-color: #f7f7f8; }
 
+    /* Conteneur central */
     .main .block-container {
         max-width: 750px;
         margin: auto;
-        padding-bottom: 100px;
+        padding-bottom: 100px; /* espace pour le chat input fixe */
     }
 
+    /* Messages utilisateur — bulle à droite */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         flex-direction: row-reverse;
         background-color: #e8f4fd;
@@ -262,6 +230,7 @@ st.markdown("""
         margin-bottom: 12px;
     }
 
+    /* Messages assistant — bulle à gauche */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -272,22 +241,13 @@ st.markdown("""
         margin-bottom: 12px;
     }
 
+    /* Texte en noir */
     [data-testid="stChatMessage"] p {
         color: #1a1a1a !important;
     }
 
+    /* Titre */
     h1 { color: #1a1a1a !important; }
-
-    /* ✅ Style pour le bloc sources */
-    .sources-block {
-        margin-top: 10px;
-        padding: 8px 12px;
-        background-color: #f0f4ff;
-        border-left: 3px solid #4a90d9;
-        border-radius: 6px;
-        font-size: 0.85em;
-        color: #333;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -298,21 +258,21 @@ st.markdown("""
 This is a **test version**. Ask your question below and the assistant will respond.
 """)
 
-st.markdown("---")
+st.markdown("---")  # horizontal line
 
+# 1️⃣ Affiche d'abord tout l'historique
+# 1️⃣ Historique
 if "history" not in st.session_state:
     st.session_state.history = []
 
+# 2️⃣ Définir le container
 chat_container = st.container()
 
 with chat_container:
     for msg in st.session_state.history:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-            # ✅ Affiche les sources sauvegardées si présentes
-            if msg["role"] == "assistant" and msg.get("sources"):
-                st.markdown(msg["sources"], unsafe_allow_html=True)
+        st.chat_message(msg["role"]).write(msg["content"])
 
+# 2️⃣ Ensuite seulement, traite le nouvel input
 user_input = st.chat_input("Ask your question:")
 
 if user_input:
@@ -330,11 +290,7 @@ if user_input:
     async def get_response():
         async for chunk in agent.astream(user_input):
             response_chunks.append(chunk)
-            # ✅ Affiche uniquement la réponse (sans les sources) pendant le stream
-            main_text = "".join(response_chunks)
-            if "---" in main_text:
-                main_text = main_text.split("---")[0]
-            placeholder.chat_message("assistant").write(main_text)
+            placeholder.chat_message("assistant").write("".join(response_chunks))
 
     try:
         loop = asyncio.get_running_loop()
@@ -343,38 +299,5 @@ if user_input:
     except RuntimeError:
         asyncio.run(get_response())
 
-    full_response = "".join(response_chunks)
-
-    # ✅ Séparer réponse et sources
-    sources_html = ""
-    if "---" in full_response:
-        parts = full_response.split("---", 1)
-        answer_text = parts[0].strip()
-        sources_raw = parts[1].strip()  # ex: "📚 **Sources :**\n• fichier.pdf — page 3"
-
-        # Formater en HTML propre
-        lines = sources_raw.replace("📚 **Sources :**", "").strip().split("\n")
-        sources_items = "".join(
-            f"<div>📄 {line.strip().lstrip('•').strip()}</div>"
-            for line in lines if line.strip()
-        )
-        sources_html = f"""
-        <div class='sources-block'>
-            <strong>📚 Sources</strong>
-            {sources_items}
-        </div>
-        """
-
-        # ✅ Remplacer le placeholder avec réponse + sources
-        with placeholder.chat_message("assistant"):
-            st.write(answer_text)
-            st.markdown(sources_html, unsafe_allow_html=True)
-    else:
-        answer_text = full_response
-
-    # ✅ Sauvegarder réponse et sources séparément dans l'historique
-    st.session_state.history.append({
-        "role": "assistant",
-        "content": answer_text,
-        "sources": sources_html  # peut être "" si pas de sources
-    })
+    # 3️⃣ Sauvegarde la réponse finale
+    st.session_state.history.append({"role": "assistant", "content": "".join(response_chunks)})
