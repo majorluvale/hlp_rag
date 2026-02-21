@@ -69,7 +69,7 @@ retriever = vector_store.as_retriever(
 
 retriever_tool = create_retriever_tool(
     retriever,
-    "agriculture",
+    "hlprag",
     "This is a tool focused on HLP. It will answer any question related to HLP and seek answers from the vector database",
     document_separator = "\n\n"
 )
@@ -96,7 +96,7 @@ class InMemoryHistory(BaseChatMessageHistory, BaseModel):
 prompt = PromptTemplate.from_template("""
 You are HLP, an AI assistant specialized in Housing, Land, and Property (HLP/LTP/LTB).
 Answer only HLP-related questions.
-Answer in the language of the question. For transparency always provide the source you used to generate the response. Source will be document name from the vector database + page. Only source documents you have in the vector database otherwise you will be hallucinating.
+Answer in the language of the question. POLR means Provider of Last Resort.
 If a user also ask for the source documents, please provide them.
 
 When you can't find the answer, say politelly that you don't have that information.
@@ -143,7 +143,7 @@ class Agent:
         self.get_session_history,
         input_messages_key="input",
         history_messages_key="chat_history",
-    ).with_config(RunnableConfig(run_name="agriculture", callbacks=[langfuse_handler]))
+    ).with_config(RunnableConfig(run_name="hlprag", callbacks=[langfuse_handler]))
 
   def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
     if session_id not in store:
