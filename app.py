@@ -100,6 +100,7 @@ Answer in the language of the question.
 
 When you can't find the answer, say politelly that you don't have that information.
 Remove in the output any white characters such as <br>•, etc.
+POLR means Provider of Last Resort
 
 Context:
 - Humanitarian Reset: clusters simplified; Shelter, CCCM, and HLP AoR integrated into the new Shelter, Land and Site Coordination Cluster (SLSCC).
@@ -126,6 +127,7 @@ class Agent:
     self.tools = tools
     self.llm = llm
     self.prompt = prompt
+    self.sources = []
     
     self.call_tool_list = RunnableLambda(self.call_tool).map()
 
@@ -164,6 +166,17 @@ class Agent:
     return RunnablePassthrough.assign(output=itemgetter("args") | tool)
 
   def parse_context(self, get_mo_output: list) -> str:
+    self.sources = []
+    for item in get_mo_output:
+        if item.get("type") == "agriculture":
+            # Récupérer les docs avec métadonnées via le retriever
+            query = item.get("args", {}).get("query", self.question)
+            docs = retriever.invoke(query)
+            for doc in docs:
+                source = doc.metadata.get("source", "")
+                page = doc.metadata.get("page", "")
+                if source and source not in [s["source"] for s in self.sources]:
+                    self.sources.append({"source": source, "page": page})
 
     self.session_history.add_message(
         AIMessage(json.dumps(get_mo_output, indent=2)))
@@ -184,9 +197,22 @@ class Agent:
             | self.parse_context
             | self.chain
         )
+    
+   # ✅ Formate les sources en texte lisible
+  def format_sources(self) -> str:
+    if not self.sources:
+        return ""
+    lines = ["\n\n---\n📚 **Sources :**"]
+    for s in self.sources:
+        line = f"• {s['source']}"
+        if s["page"] != "":
+            line += f" — page {s['page']}"
+        lines.append(line)
+    return "\n".join(lines)
   
   async def astream(self, question):
     self.question = question
+    self.sources = []
     async for event in self.conversation.astream_events(
         {"input": self.question, "chat_history": [], "context": ""},
         config=self.config,
@@ -196,6 +222,10 @@ class Agent:
         chunk = event["data"]["chunk"]
         if chunk and hasattr(chunk, "content"):
             yield chunk.content
+    
+    sources_text = self.format_sources()
+    if sources_text:
+        yield sources_text    
 
 # Input utilisateur
 # -------------------------
