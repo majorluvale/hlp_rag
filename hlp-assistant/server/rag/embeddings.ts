@@ -1,4 +1,6 @@
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import OpenAI from 'openai';
 import { config } from '../config';
 
@@ -26,14 +28,19 @@ function normalise(v: ArrayLike<number>): Float32Array {
   return out;
 }
 
-// ---- local (transformers.js) — imported lazily and never bundled for serverless ----
+// ---- local (transformers.js on CPU) — also used on Vercel, with the model bundled in the function ----
 let extractor: Promise<any> | null = null;
 async function localEmbed(inputs: string[]): Promise<Float32Array[]> {
   if (!extractor) {
     console.log(`[embeddings] chargement du modèle local ${model}…`);
-    const spec = ['@huggingface', 'transformers'].join('/');
-    extractor = import(spec).then((m: any) => {
+    extractor = import('@huggingface/transformers').then((m: any) => {
       m.env.cacheDir = path.join(config.dataDir, 'models');
+      // Serverless build: the model files ship inside the function (scripts/build-vercel.mjs)
+      const bundled = path.join(path.dirname(fileURLToPath(import.meta.url)), 'models');
+      if (fs.existsSync(path.join(bundled, model, 'config.json'))) {
+        m.env.localModelPath = bundled;
+        m.env.allowRemoteModels = false;
+      }
       return m.pipeline('feature-extraction', model, { dtype: 'q8' });
     });
   }
