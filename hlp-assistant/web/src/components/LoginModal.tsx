@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { api } from '../api';
+import { useI18n } from '../i18n';
 import { IconX } from './Icons';
 
-export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const { t } = useI18n();
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className={`modal card ${wide ? 'wide' : ''}`} onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal>
         <div className="modal-head">
           <h2>{title}</h2>
-          <button className="icon-btn ghost" onClick={onClose} aria-label="Fermer">
+          <button className="icon-btn ghost" onClick={onClose} aria-label={t('common.close')}>
             <IconX />
           </button>
         </div>
@@ -19,6 +21,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
 }
 
 export function LoginModal({ onClose, onLoggedIn }: { onClose: () => void; onLoggedIn: (needsName: boolean) => void }) {
+  const { t } = useI18n();
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -33,7 +36,7 @@ export function LoginModal({ onClose, onLoggedIn }: { onClose: () => void; onLog
     try {
       const r = await api<{ delivered: boolean; devCode?: string }>('/auth/request-otp', { body: { email } });
       setDevCode(r.devCode ?? null);
-      setNotice(r.delivered ? `Un code à 6 chiffres a été envoyé à ${email}.` : 'Mode démo : l’email n’est pas configuré, le code est affiché dans la console du serveur.');
+      setNotice(r.delivered ? t('login.sent', { email }) : t('login.demo'));
       setStep('code');
     } catch (e) {
       setError((e as Error).message);
@@ -56,24 +59,24 @@ export function LoginModal({ onClose, onLoggedIn }: { onClose: () => void; onLog
   };
 
   return (
-    <Modal title="Se connecter" onClose={onClose}>
+    <Modal title={t('login.title')} onClose={onClose}>
       {step === 'email' ? (
         <form onSubmit={(e) => { e.preventDefault(); request(); }} className="form">
-          <p className="muted">Pas de mot de passe : saisissez votre email, nous vous envoyons un code de connexion.</p>
+          <p className="muted">{t('login.intro')}</p>
           <label>
-            Adresse email
-            <input type="email" autoFocus required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="prenom.nom@nrc.no" />
+            {t('login.email')}
+            <input type="email" autoFocus required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('login.emailPlaceholder')} />
           </label>
           {error && <div className="alert">{error}</div>}
-          <button className="btn primary block lg" disabled={loading}>{loading ? 'Envoi…' : 'Recevoir un code'}</button>
-          <p className="xsmall muted center">Vous pouvez aussi continuer en invité, sans connexion.</p>
+          <button className="btn primary block lg" disabled={loading}>{loading ? t('login.sending') : t('login.getCode')}</button>
+          <p className="xsmall muted center">{t('login.guestHint')}</p>
         </form>
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); verify(); }} className="form">
           <p className="muted">{notice}</p>
-          {devCode && <div className="alert info">Code (mode développement) : <strong>{devCode}</strong></div>}
+          {devCode && <div className="alert info">{t('login.devCode')} <strong>{devCode}</strong></div>}
           <label>
-            Code de vérification
+            {t('login.code')}
             <input
               className="otp"
               inputMode="numeric"
@@ -86,10 +89,10 @@ export function LoginModal({ onClose, onLoggedIn }: { onClose: () => void; onLog
             />
           </label>
           {error && <div className="alert">{error}</div>}
-          <button className="btn primary block lg" disabled={loading || code.length !== 6}>{loading ? 'Vérification…' : 'Se connecter'}</button>
+          <button className="btn primary block lg" disabled={loading || code.length !== 6}>{loading ? t('login.verifying') : t('login.submit')}</button>
           <div className="row between">
-            <button type="button" className="btn ghost" onClick={() => setStep('email')}>Changer d’email</button>
-            <button type="button" className="btn ghost" onClick={request} disabled={loading}>Renvoyer le code</button>
+            <button type="button" className="btn ghost" onClick={() => setStep('email')}>{t('login.changeEmail')}</button>
+            <button type="button" className="btn ghost" onClick={request} disabled={loading}>{t('login.resend')}</button>
           </div>
         </form>
       )}

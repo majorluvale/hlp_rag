@@ -1,17 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, initials, streamChat, timeAgo, type ChatMessage, type Conversation, type Source, type User } from '../api';
+import { api, initials, streamChat, type ChatMessage, type Conversation, type Source, type User } from '../api';
+import { ACRONYM, timeAgoT, useI18n } from '../i18n';
 import { Markdown } from './Markdown';
 import {
-  IconBook, IconCheck, IconCopy, IconEdit, IconGlobe, IconPlus, IconSend, IconShield, IconSpark, IconThumbDown, IconThumbUp, IconTrash,
+  IconBook, IconCheck, IconCopy, IconEdit, IconGlobe, IconPlus, IconSend, IconSpark, IconThumbDown, IconThumbUp, IconTrash,
 } from './Icons';
 
-const SUGGESTIONS = [
-  'Quelles sont les étapes d’une due diligence HLP avant la construction d’abris ?',
-  'Comment prévenir une expulsion forcée dans un site de déplacés ?',
-  'Quel est le rôle du NRC comme POLR dans le nouveau cluster SLSC ?',
-  'How can we secure women’s land rights in return areas?',
-  'Quels documents prouvent la sécurité d’occupation sans titre foncier formel ?',
-];
+const SUGGESTIONS = ['suggest.1', 'suggest.2', 'suggest.3', 'suggest.4', 'suggest.5'] as const;
 
 interface Props {
   user: User | null;
@@ -22,12 +17,16 @@ interface Props {
 }
 
 export function ChatPage({ user, conversations, refreshConversations, onLogin, onEditContext }: Props) {
+  const { t, lang } = useI18n();
+  const ago = (ms?: number) => (ms ? timeAgoT(t, ms, lang) : '');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
-  const [info, setInfo] = useState<{ domains: string[]; stats: { docs: number; web: number; corrections: number } } | null>(null);
+  const [info, setInfo] = useState<{ stats: { docs: number; web: number; corrections: number } } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const guestLabel = t('common.guest');
+  const acronym = ACRONYM[lang];
 
   useEffect(() => {
     api('/info').then(setInfo).catch(() => {});
@@ -51,14 +50,13 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
   };
 
   const deleteConversation = async (id: string) => {
-    if (!confirm('Supprimer cette conversation ?')) return;
+    if (!confirm(t('conv.confirmDelete'))) return;
     await api(`/conversations/${id}`, { method: 'DELETE' });
     if (id === conversationId) newConversation();
     await refreshConversations();
   };
 
-  const patchLast = (fn: (m: ChatMessage) => ChatMessage) =>
-    setMessages((ms) => ms.map((m, i) => (i === ms.length - 1 ? fn(m) : m)));
+  const patchLast = (fn: (m: ChatMessage) => ChatMessage) => setMessages((ms) => ms.map((m, i) => (i === ms.length - 1 ? fn(m) : m)));
 
   const send = async (text: string) => {
     const message = text.trim();
@@ -68,7 +66,7 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
     setMessages((ms) => [
       ...ms,
       { id: tmpId + 'u', role: 'user', content: message, createdAt: Date.now() },
-      { id: tmpId, role: 'assistant', content: '', pending: true, status: 'Réflexion…', createdAt: Date.now() },
+      { id: tmpId, role: 'assistant', content: '', pending: true, status: t('status.thinking'), createdAt: Date.now() },
     ]);
     const ac = new AbortController();
     abortRef.current = ac;
@@ -112,41 +110,41 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
       <aside className="rail left">
         <section className="card profile-card">
           <div className="cover" />
-          <div className="avatar lg">{initials(user)}</div>
-          <h2>{user?.displayName || (user?.isGuest ? 'Invité' : user?.email)}</h2>
+          <div className="avatar lg">{initials(user, guestLabel)}</div>
+          <h2>{user?.displayName || (user?.isGuest ? guestLabel : user?.email)}</h2>
           <p className="muted">
-            {[p.jobTitle, p.organisation].filter(Boolean).join(' · ') || (user?.isGuest ? 'Session invitée — sans inscription' : 'Profil à compléter')}
+            {[p.jobTitle, p.organisation].filter(Boolean).join(' · ') || (user?.isGuest ? t('profile.guestSubtitle') : t('profile.toComplete'))}
           </p>
           {p.country && <p className="muted small">{p.country}</p>}
           <div className="divider" />
           <button className="link-row" onClick={onEditContext}>
-            <span>{contextFilled ? 'Mon contexte' : 'Personnaliser mes réponses'}</span>
+            <span>{contextFilled ? t('profile.myContext') : t('profile.personalise')}</span>
             <IconEdit width={16} height={16} />
           </button>
           {user?.isGuest && (
             <div className="profile-cta">
-              <p className="small muted">Connectez-vous avec votre email pour retrouver vos conversations partout. Pas de mot de passe.</p>
-              <button className="btn primary block" onClick={onLogin}>Se connecter</button>
+              <p className="small muted">{t('profile.signInCta')}</p>
+              <button className="btn primary block" onClick={onLogin}>{t('menu.signIn')}</button>
             </div>
           )}
         </section>
 
         <section className="card conv-card">
           <div className="card-head">
-            <h3>Conversations</h3>
-            <button className="icon-btn" title="Nouvelle conversation" onClick={newConversation}>
+            <h3>{t('conv.title')}</h3>
+            <button className="icon-btn" title={t('conv.new')} onClick={newConversation}>
               <IconPlus />
             </button>
           </div>
-          {conversations.length === 0 && <p className="muted small pad">Vos échanges apparaîtront ici.</p>}
+          {conversations.length === 0 && <p className="muted small pad">{t('conv.empty')}</p>}
           <ul className="conv-list">
             {conversations.map((c) => (
               <li key={c.id} className={c.id === conversationId ? 'active' : ''}>
                 <button onClick={() => openConversation(c.id)} title={c.title}>
                   <span className="conv-title">{c.title}</span>
-                  <span className="muted xsmall">{timeAgo(c.updatedAt)}</span>
+                  <span className="muted xsmall">{ago(c.updatedAt)}</span>
                 </button>
-                <button className="icon-btn ghost" title="Supprimer" onClick={() => deleteConversation(c.id)}>
+                <button className="icon-btn ghost" title={t('conv.delete')} onClick={() => deleteConversation(c.id)}>
                   <IconTrash width={15} height={15} />
                 </button>
               </li>
@@ -160,21 +158,20 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
         {messages.length === 0 && (
           <article className="card welcome">
             <div className="post-head">
-              <span className="avatar md brand-avatar">HLP</span>
+              <span className="avatar md brand-avatar">{acronym}</span>
               <div>
-                <strong>HLP Assistant</strong>
-                <div className="muted small">Expert Logement, Terre et Propriété · IA du NRC</div>
+                <strong>{t('assistant.name')}</strong>
+                <div className="muted small">{t('assistant.subtitle')}</div>
               </div>
             </div>
-            <p>
-              Bonjour{user?.displayName ? ` ${user.displayName}` : ''} 👋 Je réponds à vos questions sur le <strong>HLP</strong> à partir
-              de la bibliothèque documentaire de l’équipe et, si nécessaire, des sites officiels mis à jour (AoR HLP, NRC, ONU-Habitat,
-              Global Shelter Cluster, Global CCCM Cluster). Chaque réponse cite ses sources et est relue par l’équipe HLP.
-            </p>
+            <p className="welcome-hello">{t('welcome.hello', { name: user?.displayName ? ` ${user.displayName}` : '' })}</p>
+            <Markdown text={t('welcome.body')} />
+            <p className="muted small">{t('welcome.body2')}</p>
+            <div className="muted xsmall upper try">{t('welcome.try')}</div>
             <div className="chips">
-              {SUGGESTIONS.map((s) => (
-                <button key={s} className="chip" onClick={() => send(s)}>
-                  {s}
+              {SUGGESTIONS.map((k) => (
+                <button key={k} className="chip" onClick={() => send(t(k))}>
+                  {t(k)}
                 </button>
               ))}
             </div>
@@ -185,10 +182,10 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
           m.role === 'user' ? (
             <article key={m.id} className="card post user-post">
               <div className="post-head">
-                <span className="avatar sm">{initials(user)}</span>
+                <span className="avatar sm">{initials(user, guestLabel)}</span>
                 <div>
-                  <strong>{user?.displayName || 'Vous'}</strong>
-                  <div className="muted xsmall">{m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+                  <strong>{user?.displayName || t('common.you')}</strong>
+                  <div className="muted xsmall">{ago(m.createdAt)}</div>
                 </div>
               </div>
               <p className="question">{m.content}</p>
@@ -200,7 +197,7 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
         <div ref={bottomRef} />
 
         <div className="composer card">
-          <span className="avatar sm">{initials(user)}</span>
+          <span className="avatar sm">{initials(user, guestLabel)}</span>
           <Composer busy={busy} onSend={send} onStop={() => abortRef.current?.abort()} />
         </div>
       </section>
@@ -209,44 +206,31 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
       <aside className="rail right">
         <section className="card">
           <div className="card-head">
-            <h3>Sources de confiance</h3>
-            <IconShield width={16} height={16} />
+            <h3>{t('rail.whatIsTitle')}</h3>
+            <IconBook width={16} height={16} />
           </div>
-          <ul className="news">
-            {(info?.domains ?? []).map((d) => (
-              <li key={d}>
-                <span className="dot" />
-                <div>
-                  <a href={`https://${d}`} target="_blank" rel="noreferrer">{d}</a>
-                  <div className="muted xsmall">Recherche en ligne si l’information doit être à jour</div>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <p className="small">{t('rail.whatIsText')}</p>
         </section>
         <section className="card">
           <div className="card-head">
-            <h3>Un assistant qui apprend</h3>
+            <h3>{t('rail.learning')}</h3>
             <IconSpark width={16} height={16} />
           </div>
           <div className="stats">
-            <div><strong>{info?.stats.docs ?? '–'}</strong><span className="muted xsmall">documents</span></div>
-            <div><strong>{info?.stats.web ?? '–'}</strong><span className="muted xsmall">pages web apprises</span></div>
-            <div><strong>{info?.stats.corrections ?? '–'}</strong><span className="muted xsmall">corrections validées</span></div>
+            <div><strong>{info?.stats.docs ?? '–'}</strong><span className="muted xsmall">{t('rail.docs')}</span></div>
+            <div><strong>{info?.stats.web ?? '–'}</strong><span className="muted xsmall">{t('rail.web')}</span></div>
+            <div><strong>{info?.stats.corrections ?? '–'}</strong><span className="muted xsmall">{t('rail.corrections')}</span></div>
           </div>
-          <p className="small muted">
-            Vos 👍/👎 et les corrections de l’équipe HLP renforcent les sources fiables et améliorent les réponses suivantes.
-          </p>
+          <p className="small muted">{t('rail.learningText')}</p>
         </section>
-        <footer className="foot muted xsmall">
-          Les réponses ne remplacent pas un conseil juridique individuel. · NRC — HLP
-        </footer>
+        <footer className="foot muted xsmall">{t('rail.footer')}</footer>
       </aside>
     </main>
   );
 }
 
 function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (t: string) => void; onStop: () => void }) {
+  const { t } = useI18n();
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -266,7 +250,7 @@ function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (t: string)
         ref={ref}
         rows={1}
         value={text}
-        placeholder="Posez votre question HLP…"
+        placeholder={t('composer.placeholder')}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
@@ -276,9 +260,9 @@ function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (t: string)
         }}
       />
       {busy ? (
-        <button className="btn outline" onClick={onStop}>Arrêter</button>
+        <button className="btn outline" onClick={onStop}>{t('composer.stop')}</button>
       ) : (
-        <button className="btn primary round" onClick={submit} disabled={!text.trim()} title="Envoyer">
+        <button className="btn primary round" onClick={submit} disabled={!text.trim()} title={t('common.send')}>
           <IconSend width={18} height={18} />
         </button>
       )}
@@ -293,6 +277,7 @@ function SourceIcon({ s }: { s: Source }) {
 }
 
 function AnswerCard({ m, onVote }: { m: ChatMessage; onVote: (m: ChatMessage, r: 1 | -1, c?: string) => Promise<void> }) {
+  const { t, lang } = useI18n();
   const [copied, setCopied] = useState(false);
   const [askWhy, setAskWhy] = useState(false);
   const [why, setWhy] = useState('');
@@ -301,10 +286,10 @@ function AnswerCard({ m, onVote }: { m: ChatMessage; onVote: (m: ChatMessage, r:
   return (
     <article className="card post answer">
       <div className="post-head">
-        <span className="avatar sm brand-avatar">HLP</span>
+        <span className="avatar sm brand-avatar">{ACRONYM[lang]}</span>
         <div>
-          <strong>HLP Assistant</strong>
-          <div className="muted xsmall">Expert HLP · {m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+          <strong>{t('assistant.name')}</strong>
+          <div className="muted xsmall">{t('assistant.short')} · {m.createdAt ? timeAgoT(t, m.createdAt, lang) : ''}</div>
         </div>
       </div>
 
@@ -319,7 +304,7 @@ function AnswerCard({ m, onVote }: { m: ChatMessage; onVote: (m: ChatMessage, r:
 
       {!!m.sources?.length && (
         <div className="sources">
-          <div className="muted xsmall upper">Sources</div>
+          <div className="muted xsmall upper">{t('answer.sources')}</div>
           {m.sources.map((s) => (
             <div key={s.n} id={`${m.id}-src-${s.n}`} className={`source ${s.kind}`}>
               <span className="source-n">{s.n}</span>
@@ -327,10 +312,10 @@ function AnswerCard({ m, onVote }: { m: ChatMessage; onVote: (m: ChatMessage, r:
               {s.url ? (
                 <a href={s.url} target="_blank" rel="noreferrer">{s.title}</a>
               ) : (
-                <span title={s.snippet.slice(0, 400)}>{s.title}</span>
+                <span title={s.snippet.slice(0, 400)}>{s.kind === 'correction' ? t('answer.validated') : s.title}</span>
               )}
               {s.page ? <span className="muted xsmall">p. {s.page}</span> : null}
-              {s.kind === 'correction' && <span className="badge green">Validé par l’équipe</span>}
+              {s.kind === 'correction' && <span className="badge green">{t('answer.validated')}</span>}
             </div>
           ))}
         </div>
@@ -340,10 +325,10 @@ function AnswerCard({ m, onVote }: { m: ChatMessage; onVote: (m: ChatMessage, r:
         <>
           <div className="actions">
             <button className={`action ${m.vote === 1 ? 'on' : ''}`} onClick={() => { onVote(m, 1); setThanks(true); setAskWhy(false); }}>
-              <IconThumbUp width={18} height={18} /> Utile
+              <IconThumbUp width={18} height={18} /> {t('answer.useful')}
             </button>
             <button className={`action ${m.vote === -1 ? 'on neg' : ''}`} onClick={() => setAskWhy(true)}>
-              <IconThumbDown width={18} height={18} /> À améliorer
+              <IconThumbDown width={18} height={18} /> {t('answer.improve')}
             </button>
             <button
               className="action"
@@ -353,19 +338,19 @@ function AnswerCard({ m, onVote }: { m: ChatMessage; onVote: (m: ChatMessage, r:
                 setTimeout(() => setCopied(false), 1500);
               }}
             >
-              <IconCopy width={18} height={18} /> {copied ? 'Copié' : 'Copier'}
+              <IconCopy width={18} height={18} /> {copied ? t('answer.copied') : t('answer.copy')}
             </button>
           </div>
           {askWhy && (
             <div className="why">
-              <textarea placeholder="Qu’est-ce qui n’allait pas ? (facultatif — l’équipe HLP lira votre remarque)" value={why} onChange={(e) => setWhy(e.target.value)} />
+              <textarea placeholder={t('answer.whyPlaceholder')} value={why} onChange={(e) => setWhy(e.target.value)} />
               <div className="row end">
-                <button className="btn ghost" onClick={() => setAskWhy(false)}>Annuler</button>
-                <button className="btn primary" onClick={async () => { await onVote(m, -1, why || undefined); setAskWhy(false); setThanks(true); }}>Envoyer</button>
+                <button className="btn ghost" onClick={() => setAskWhy(false)}>{t('common.cancel')}</button>
+                <button className="btn primary" onClick={async () => { await onVote(m, -1, why || undefined); setAskWhy(false); setThanks(true); }}>{t('common.send')}</button>
               </div>
             </div>
           )}
-          {thanks && !askWhy && <div className="muted xsmall thanks">Merci ! Votre avis aide l’assistant à s’améliorer.</div>}
+          {thanks && !askWhy && <div className="muted xsmall thanks">{t('answer.thanks')}</div>}
         </>
       )}
     </article>

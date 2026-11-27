@@ -327,3 +327,13 @@ textarea.code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; 
   .composer > .avatar { display: none; }
   .kpis { grid-template-columns: 1fr 1fr; }
 }
+
+/* ---------- Language switch & welcome ---------- */
+.lang-switch { cursor: default; gap: 2px; }
+.seg.mini { border-radius: 999px; }
+.seg.mini button { padding: 1px 7px; font-size: 11px; line-height: 16px; }
+.welcome-hello { font-size: 16px; font-weight: 600; margin: 4px 0 6px !important; }
+.welcome .md { margin-bottom: 6px; }
+.welcome .try { margin: 10px 0 8px; }
+.rail .card > p.small { padding: 4px 12px 12px; margin: 0; line-height: 1.5; }
+@media (max-width: 760px) { .lang-switch > span { display: none; } }

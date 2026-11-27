@@ -4,6 +4,7 @@ import { all, batch, get, now, parseJson, q, run, uid, type UserProfile, type Us
 import { runAgent, type AgentEvent } from '../ai/agent';
 import { applyUserFeedback } from '../ai/learning';
 import { logout, publicUser, requestOtp, verifyOtp } from '../auth/auth';
+import { langOf, msg } from '../i18n';
 
 export const chatRouter = Router();
 
@@ -15,16 +16,16 @@ chatRouter.post('/auth/request-otp', async (req, res) => {
     const host = String(req.headers.host ?? '').split(':')[0];
     const isLocal =
       ['localhost', '127.0.0.1', '[::1]'].includes(host) && !req.headers['x-forwarded-for'] && !req.headers['cf-connecting-ip'] && !config.isVercel;
-    const r = await requestOtp(req.body?.email, isLocal);
+    const r = await requestOtp(req.body?.email, isLocal, langOf(req));
     res.status(r.status).json(r.body);
   } catch (e) {
     console.error('[otp]', e);
-    res.status(500).json({ error: "Impossible d'envoyer l'email. Vérifiez la configuration SMTP." });
+    res.status(500).json({ error: msg(langOf(req), 'err.mail') });
   }
 });
 
 chatRouter.post('/auth/verify-otp', async (req, res) => {
-  const r = await verifyOtp(req, res, req.body?.email, req.body?.code);
+  const r = await verifyOtp(req, res, req.body?.email, req.body?.code, langOf(req));
   res.status(r.status).json(r.body);
 });
 
@@ -104,11 +105,12 @@ function rateLimited(userId: string, isGuest: boolean) {
 }
 
 chatRouter.post('/chat', async (req, res) => {
+  const lang = langOf(req);
   const question = String(req.body?.message ?? '').trim();
-  if (!question) return res.status(400).json({ error: 'Message vide' });
-  if (question.length > 4000) return res.status(400).json({ error: 'Message trop long (4000 caractères max.)' });
+  if (!question) return res.status(400).json({ error: msg(lang, 'err.empty') });
+  if (question.length > 4000) return res.status(400).json({ error: msg(lang, 'err.tooLong') });
   if (rateLimited(req.user.id, Boolean(req.user.is_guest))) {
-    return res.status(429).json({ error: 'Limite de questions atteinte pour cette heure. Connectez-vous pour une limite plus élevée.' });
+    return res.status(429).json({ error: msg(lang, 'err.rate') });
   }
 
   let conversationId = typeof req.body?.conversationId === 'string' ? req.body.conversationId : null;
@@ -142,7 +144,7 @@ chatRouter.post('/chat', async (req, res) => {
 
   send({ type: 'conversation', conversationId });
   try {
-    const result = await runAgent({ user: req.user, conversationId, question, history, emit: send, signal: ac.signal });
+    const result = await runAgent({ user: req.user, conversationId, question, history, emit: send, signal: ac.signal, lang });
     const messageId = uid('m_');
     await batch([
       q(
@@ -157,7 +159,7 @@ chatRouter.post('/chat', async (req, res) => {
     console.error('[chat]', err.message);
     send({
       type: 'error',
-      error: err.userFacing ? err.message : 'Le service est momentanément indisponible. Réessayez dans un instant.',
+      error: err.userFacing ? err.message : msg(lang, 'err.unavailable'),
       traceId: err.traceId,
     });
   } finally {

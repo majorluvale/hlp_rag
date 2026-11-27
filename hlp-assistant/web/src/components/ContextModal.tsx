@@ -1,15 +1,19 @@
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import { api, type Profile, type User } from '../api';
+import { useI18n } from '../i18n';
 import { Modal } from './LoginModal';
 
-const SECTORS = ['HLP', 'SLSC (Shelter, Land and Site Coordination)', 'Shelter / Abris', 'CCCM', 'Protection', 'ICLA / Assistance juridique', 'Coordination de cluster', 'Bailleur', 'Autorité locale / gouvernement', 'Organisation communautaire', 'Recherche', 'Autre'];
-const LEVELS = ['Débutant', 'Intermédiaire', 'Expert'];
-
 export function ContextModal({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: (u: User) => void }) {
+  const { t } = useI18n();
+  const sectors = t('ctx.sectors').split('|');
+  const levels = t('ctx.levels').split('|');
   const [name, setName] = useState(user.displayName ?? '');
   const [p, setP] = useState<Profile>(user.profile ?? {});
   const [error, setError] = useState('');
-  const set = (k: keyof Profile) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setP({ ...p, [k]: e.target.value });
+  const set = (k: keyof Profile) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setP({ ...p, [k]: e.target.value });
+
+  // keep a previously saved value selectable even if it was saved in the other language
+  const withCurrent = (list: string[], v?: string) => (v && !list.includes(v) ? [...list, v] : list);
 
   const save = async () => {
     try {
@@ -21,53 +25,51 @@ export function ContextModal({ user, onClose, onSaved }: { user: User; onClose: 
   };
 
   return (
-    <Modal title="Mon contexte" onClose={onClose} wide>
+    <Modal title={t('ctx.title')} onClose={onClose} wide>
       <form className="form grid2" onSubmit={(e) => { e.preventDefault(); save(); }}>
-        <p className="muted span2">
-          Ces informations permettent à l’assistant d’adapter ses réponses à votre rôle et à votre terrain. Tout est facultatif.
-        </p>
+        <p className="muted span2">{t('ctx.intro')}</p>
         <label className="span2">
-          Nom ou pseudo
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Amina K." autoFocus />
+          {t('ctx.name')}
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('ctx.namePh')} autoFocus />
         </label>
         <label>
-          Fonction
-          <input value={p.jobTitle ?? ''} onChange={set('jobTitle')} placeholder="Ex. HLP Officer, Shelter Coordinator" />
+          {t('ctx.job')}
+          <input value={p.jobTitle ?? ''} onChange={set('jobTitle')} placeholder={t('ctx.jobPh')} />
         </label>
         <label>
-          Organisation
-          <input value={p.organisation ?? ''} onChange={set('organisation')} placeholder="Ex. NRC, ONG locale, mairie…" />
+          {t('ctx.org')}
+          <input value={p.organisation ?? ''} onChange={set('organisation')} placeholder={t('ctx.orgPh')} />
         </label>
         <label>
-          Secteur
+          {t('ctx.sector')}
           <select value={p.sector ?? ''} onChange={set('sector')}>
             <option value="">—</option>
-            {SECTORS.map((s) => <option key={s}>{s}</option>)}
+            {withCurrent(sectors, p.sector).map((s) => <option key={s}>{s}</option>)}
           </select>
         </label>
         <label>
-          Pays / opération
-          <input value={p.country ?? ''} onChange={set('country')} placeholder="Ex. RDC — Nord-Kivu" />
+          {t('ctx.country')}
+          <input value={p.country ?? ''} onChange={set('country')} placeholder={t('ctx.countryPh')} />
         </label>
         <label>
-          Niveau en HLP
+          {t('ctx.level')}
           <select value={p.expertise ?? ''} onChange={set('expertise')}>
             <option value="">—</option>
-            {LEVELS.map((s) => <option key={s}>{s}</option>)}
+            {withCurrent(levels, p.expertise).map((s) => <option key={s}>{s}</option>)}
           </select>
         </label>
         <label>
-          Langue préférée
-          <input value={p.language ?? ''} onChange={set('language')} placeholder="Français, English, العربية…" />
+          {t('ctx.language')}
+          <input value={p.language ?? ''} onChange={set('language')} placeholder={t('ctx.languagePh')} />
         </label>
         <label className="span2">
-          Centres d’intérêt / enjeux actuels
-          <textarea value={p.interests ?? ''} onChange={set('interests')} placeholder="Ex. expulsions dans les sites urbains, droits fonciers des femmes, retour…" />
+          {t('ctx.interests')}
+          <textarea value={p.interests ?? ''} onChange={set('interests')} placeholder={t('ctx.interestsPh')} />
         </label>
         {error && <div className="alert span2">{error}</div>}
         <div className="row end span2">
-          <button type="button" className="btn ghost" onClick={onClose}>Plus tard</button>
-          <button className="btn primary">Enregistrer</button>
+          <button type="button" className="btn ghost" onClick={onClose}>{t('common.later')}</button>
+          <button className="btn primary">{t('common.save')}</button>
         </div>
       </form>
     </Modal>

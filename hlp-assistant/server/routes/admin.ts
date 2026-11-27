@@ -6,6 +6,7 @@ import { applyReview } from '../ai/learning';
 import { makeClient } from '../ai/llm';
 import { activatePrompt, createPromptVersion, listPrompts, PROMPT_NAMES, type PromptName } from '../ai/prompts';
 import { requireRole } from '../auth/auth';
+import { langOf } from '../i18n';
 import { embeddingInfo } from '../rag/embeddings';
 import { ingestAll, ingestStatus } from '../rag/ingest';
 import { index } from '../rag/hybridIndex';
@@ -185,6 +186,7 @@ adminRouter.post('/playground', async (req, res) => {
       history: [],
       promptOverride: typeof req.body?.content === 'string' && req.body.content.trim() ? req.body.content : undefined,
       playground: true,
+      lang: langOf(req),
     });
     res.json(r);
   } catch (e) {

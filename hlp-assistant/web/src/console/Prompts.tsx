@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, timeAgo, type Source } from '../api';
+import { api, type Source } from '../api';
+import { timeAgoT, useI18n } from '../i18n';
 import { Markdown } from '../components/Markdown';
 
 interface PromptRow {
@@ -19,6 +20,7 @@ const VARS: Record<string, string[]> = {
 };
 
 export function Prompts() {
+  const { t, lang } = useI18n();
   const [rows, setRows] = useState<PromptRow[]>([]);
   const [name, setName] = useState<'system' | 'judge'>('system');
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -46,7 +48,7 @@ export function Prompts() {
   const save = async (activate: boolean) => {
     try {
       const r = await api<{ prompt: PromptRow }>('/admin/prompts', { body: { name, content: draft, note, activate } });
-      setMsg(`Version v${r.prompt.version} enregistrée${activate ? ' et activée' : ''}.`);
+      setMsg(t('prompts.saved', { v: r.prompt.version, act: activate ? t('prompts.andActivated') : '' }));
       setNote('');
       await load();
       setSelectedId(r.prompt.id);
@@ -57,7 +59,7 @@ export function Prompts() {
 
   const activate = async (id: number) => {
     await api(`/admin/prompts/${id}/activate`, { body: {} });
-    setMsg('Version activée : elle est utilisée immédiatement pour les nouvelles questions.');
+    setMsg(t('prompts.activated'));
     load();
   };
 
@@ -80,8 +82,8 @@ export function Prompts() {
       <section className="card versions">
         <div className="pad-sm">
           <div className="seg">
-            <button className={name === 'system' ? 'on' : ''} onClick={() => { setName('system'); setSelectedId(null); }}>Prompt système</button>
-            <button className={name === 'judge' ? 'on' : ''} onClick={() => { setName('judge'); setSelectedId(null); }}>Évaluateur (juge)</button>
+            <button className={name === 'system' ? 'on' : ''} onClick={() => { setName('system'); setSelectedId(null); }}>{t('prompts.system')}</button>
+            <button className={name === 'judge' ? 'on' : ''} onClick={() => { setName('judge'); setSelectedId(null); }}>{t('prompts.judge')}</button>
           </div>
         </div>
         <ul>
@@ -89,9 +91,9 @@ export function Prompts() {
             <li key={v.id} className={v.id === selected?.id ? 'active' : ''} onClick={() => { setSelectedId(v.id); setDraft(v.content); }}>
               <div className="row between">
                 <strong>v{v.version}</strong>
-                {v.is_active ? <span className="badge green">active</span> : <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); activate(v.id); }}>Activer</button>}
+                {v.is_active ? <span className="badge green">{t('dash.active')}</span> : <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); activate(v.id); }}>{t('prompts.activate')}</button>}
               </div>
-              <div className="xsmall muted">{v.note || 'Sans note'} · {v.author} · {timeAgo(v.created_at)}</div>
+              <div className="xsmall muted">{v.note || t('prompts.noNote')} · {v.author} · {timeAgoT(t, v.created_at, lang)}</div>
             </li>
           ))}
         </ul>
@@ -99,29 +101,29 @@ export function Prompts() {
 
       <section className="card editor">
         <div className="row between">
-          <h3>{name === 'system' ? 'Prompt système de l’assistant' : 'Prompt de l’évaluateur automatique'} {selected && <span className="muted small">— basé sur v{selected.version}</span>}</h3>
-          {dirty && <span className="badge orange">modifié</span>}
+          <h3>{name === 'system' ? t('prompts.titleSystem') : t('prompts.titleJudge')} {selected && <span className="muted small">{t('prompts.basedOn', { v: selected.version })}</span>}</h3>
+          {dirty && <span className="badge orange">{t('prompts.modified')}</span>}
         </div>
-        <div className="xsmall muted">Variables disponibles : {VARS[name].map((v) => <code key={v}>{v}</code>)}</div>
+        <div className="xsmall muted">{t('prompts.vars')} {VARS[name].map((v) => <code key={v}>{v}</code>)}</div>
         <textarea className="code" value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
         <div className="row gap8">
-          <input className="grow" placeholder="Note de version (ex. « réponses plus courtes pour le terrain »)" value={note} onChange={(e) => setNote(e.target.value)} />
-          <button className="btn outline" disabled={!dirty} onClick={() => save(false)}>Enregistrer en brouillon</button>
-          <button className="btn primary" disabled={!dirty} onClick={() => save(true)}>Enregistrer et activer</button>
+          <input className="grow" placeholder={t('prompts.notePh')} value={note} onChange={(e) => setNote(e.target.value)} />
+          <button className="btn outline" disabled={!dirty} onClick={() => save(false)}>{t('prompts.saveDraft')}</button>
+          <button className="btn primary" disabled={!dirty} onClick={() => save(true)}>{t('prompts.saveActivate')}</button>
         </div>
         {msg && <div className="alert info">{msg}</div>}
 
         {name === 'system' && (
           <div className="playground card-inset">
-            <h4>Tester ce prompt (sans l’activer)</h4>
+            <h4>{t('prompts.test')}</h4>
             <div className="row gap8">
-              <input className="grow" placeholder="Question de test…" value={testQ} onChange={(e) => setTestQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && testQ && runTest()} />
-              <button className="btn primary" disabled={!testQ || testing} onClick={runTest}>{testing ? 'Exécution…' : 'Tester'}</button>
+              <input className="grow" placeholder={t('prompts.testPh')} value={testQ} onChange={(e) => setTestQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && testQ && runTest()} />
+              <button className="btn primary" disabled={!testQ || testing} onClick={runTest}>{testing ? t('prompts.running') : t('prompts.run')}</button>
             </div>
             {test && (
               <div className="answer-box">
                 <Markdown text={test.answer} sources={test.sources} anchor="pg" />
-                <div className="xsmall muted">Trace : {test.traceId} (filtre « Playground » dans Traces)</div>
+                <div className="xsmall muted">{t('prompts.traceHint', { id: test.traceId })}</div>
               </div>
             )}
           </div>

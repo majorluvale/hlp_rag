@@ -1,3 +1,5 @@
+import { getLang } from './i18n';
+
 export interface Profile {
   jobTitle?: string;
   organisation?: string;
@@ -48,7 +50,7 @@ export interface Conversation {
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch('/api' + path, {
     method: opts.method ?? (opts.body ? 'POST' : 'GET'),
-    headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { 'X-Lang': getLang(), ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     credentials: 'same-origin',
   });
@@ -73,8 +75,8 @@ export async function streamChat(
 ) {
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', 'X-Lang': getLang() },
+    body: JSON.stringify({ ...body, lang: getLang() }),
     credentials: 'same-origin',
     signal,
   });
@@ -100,21 +102,12 @@ export async function streamChat(
   }
 }
 
-export const initials = (u: Pick<User, 'displayName' | 'email'> | null) => {
-  const s = u?.displayName || u?.email || 'Invité';
+export const initials = (u: Pick<User, 'displayName' | 'email'> | null, fallback = '?') => {
+  const s = u?.displayName || u?.email || fallback;
   return s
     .split(/[\s@._-]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0]!.toUpperCase())
     .join('');
-};
-
-export const timeAgo = (ms: number) => {
-  const d = (Date.now() - ms) / 1000;
-  if (d < 60) return "à l'instant";
-  if (d < 3600) return `${Math.floor(d / 60)} min`;
-  if (d < 86400) return `${Math.floor(d / 3600)} h`;
-  if (d < 86400 * 7) return `${Math.floor(d / 86400)} j`;
-  return new Date(ms).toLocaleDateString('fr-FR');
 };

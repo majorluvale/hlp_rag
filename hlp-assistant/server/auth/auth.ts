@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { config } from '../config';
 import { batch, get, now, q, run, uid, type UserRow } from '../db';
+import { msg, type Lang } from '../i18n';
 import { sendOtpEmail } from './mailer';
 
 const COOKIE = 'hlp_sid';
@@ -69,26 +70,29 @@ export async function attachUser(req: Request, res: Response, next: NextFunction
 
 export function requireRole(...roles: UserRow['role'][]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) return res.status(403).json({ error: 'Accès réservé à l’équipe HLP' });
+    if (!req.user || !roles.includes(req.user.role)) {
+      const lang: Lang = String(req.headers['x-lang'] ?? '').startsWith('fr') ? 'fr' : 'en';
+      return res.status(403).json({ error: msg(lang, 'err.team') });
+    }
     next();
   };
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-export async function requestOtp(emailRaw: string, isLocalRequest = false) {
+export async function requestOtp(emailRaw: string, isLocalRequest = false, lang: Lang = 'en') {
   const email = String(emailRaw ?? '').trim().toLowerCase();
-  if (!EMAIL_RE.test(email) || email.length > 200) return { status: 400, body: { error: 'Adresse email invalide' } };
+  if (!EMAIL_RE.test(email) || email.length > 200) return { status: 400, body: { error: msg(lang, 'err.email') } };
   const last = await get<{ created_at: number }>('SELECT created_at FROM otp_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1', email);
   if (last && now() - last.created_at < OTP_RESEND_DELAY) {
-    return { status: 429, body: { error: 'Un code vient d’être envoyé. Patientez quelques secondes.' } };
+    return { status: 429, body: { error: msg(lang, 'err.otpWait') } };
   }
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   await batch([
     q('UPDATE otp_codes SET consumed = 1 WHERE email = ? AND consumed = 0', email),
     q('INSERT INTO otp_codes (email, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?)', email, hmac(email + ':' + code), now() + OTP_TTL, now()),
   ]);
-  const { delivered } = await sendOtpEmail(email, code);
+  const { delivered } = await sendOtpEmail(email, code, lang);
   return {
     status: 200,
     body: {
@@ -100,19 +104,19 @@ export async function requestOtp(emailRaw: string, isLocalRequest = false) {
   };
 }
 
-export async function verifyOtp(req: Request, res: Response, emailRaw: string, codeRaw: string) {
+export async function verifyOtp(req: Request, res: Response, emailRaw: string, codeRaw: string, lang: Lang = 'en') {
   const email = String(emailRaw ?? '').trim().toLowerCase();
   const code = String(codeRaw ?? '').replace(/\D/g, '');
   const otp = await get<{ id: number; code_hash: string; attempts: number; expires_at: number }>(
     'SELECT * FROM otp_codes WHERE email = ? AND consumed = 0 ORDER BY created_at DESC LIMIT 1',
     email,
   );
-  if (!otp || otp.expires_at < now()) return { status: 400, body: { error: 'Code expiré. Demandez un nouveau code.' } };
-  if (otp.attempts >= OTP_MAX_ATTEMPTS) return { status: 429, body: { error: 'Trop de tentatives. Demandez un nouveau code.' } };
+  if (!otp || otp.expires_at < now()) return { status: 400, body: { error: msg(lang, 'err.otpExpired') } };
+  if (otp.attempts >= OTP_MAX_ATTEMPTS) return { status: 429, body: { error: msg(lang, 'err.otpAttempts') } };
   const ok = code.length === 6 && crypto.timingSafeEqual(Buffer.from(otp.code_hash), Buffer.from(hmac(email + ':' + code)));
   if (!ok) {
     await run('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?', otp.id);
-    return { status: 400, body: { error: 'Code incorrect' } };
+    return { status: 400, body: { error: msg(lang, 'err.otpWrong') } };
   }
   await run('UPDATE otp_codes SET consumed = 1 WHERE id = ?', otp.id);
 

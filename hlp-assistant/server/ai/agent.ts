@@ -1,6 +1,7 @@
 import type OpenAI from 'openai';
 import { config } from '../config';
 import { background } from '../background';
+import { msg, type Lang } from '../i18n';
 import { all, batch, parseJson, q, type UserProfile, type UserRow } from '../db';
 import { findCorrections, retrieve, type Hit } from '../rag/retrieval';
 import { fetchPage, learnFromPage, searchWeb } from '../rag/web';
@@ -25,6 +26,7 @@ export interface AgentInput {
   emit?: (e: AgentEvent) => void;
   promptOverride?: string;
   playground?: boolean;
+  lang?: Lang;
   signal?: AbortSignal;
 }
 
@@ -107,8 +109,9 @@ function formatHits(hits: Hit[], reg: SourceRegistry): string {
     .join('\n\n');
 }
 
-export async function buildUserContext(user: UserRow | null): Promise<string> {
-  if (!user) return '- Utilisateur de test (playground)';
+export async function buildUserContext(user: UserRow | null, lang: Lang = 'en'): Promise<string> {
+  const uiLang = `- Langue de l'interface : ${lang === 'fr' ? 'français' : 'anglais'} (à utiliser si la langue de la question est ambiguë)`;
+  if (!user) return `- Utilisateur de test (playground)\n${uiLang}`;
   const p = parseJson<UserProfile>(user.profile_json, {});
   const lines = [
     `- Statut : ${user.is_guest ? 'invité (non connecté)' : 'connecté'}${user.role === 'reviewer' || user.role === 'admin' ? ' — membre de l’équipe HLP' : ''}`,
@@ -120,21 +123,23 @@ export async function buildUserContext(user: UserRow | null): Promise<string> {
     p.expertise && `- Niveau en HLP : ${p.expertise}`,
     p.language && `- Langue préférée : ${p.language}`,
     p.interests && `- Centres d'intérêt : ${p.interests}`,
+    uiLang,
   ].filter(Boolean) as string[];
   const recent = await all<{ title: string }>(
     'SELECT title FROM conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 5',
     user.id,
   );
   if (recent.length) lines.push(`- Sujets récents : ${recent.map((r) => r.title).join(' ; ')}`);
-  if (lines.length === 1) lines.push('- Profil non renseigné : reste accessible, demande le contexte (pays, rôle) si cela change la réponse.');
+  if (lines.length === 2) lines.push('- Profil non renseigné : reste accessible, demande le contexte (pays, rôle) si cela change la réponse.');
   return lines.join('\n');
 }
 
 export async function runAgent(input: AgentInput) {
   const emit = input.emit ?? (() => {});
-  const [{ client, cfg }, system, userContext] = await Promise.all([getLlm(), getActivePrompt('system'), buildUserContext(input.user)]);
+  const lang: Lang = input.lang ?? 'en';
+  const [{ client, cfg }, system, userContext] = await Promise.all([getLlm(), getActivePrompt('system'), buildUserContext(input.user, lang)]);
   if (!cfg.apiKey && !/localhost|127\.0\.0\.1/.test(cfg.baseURL)) {
-    throw Object.assign(new Error('Aucune clé API LLM configurée. Un administrateur doit la renseigner dans Observabilité → Paramètres.'), { userFacing: true });
+    throw Object.assign(new Error(msg(lang, 'err.noKey')), { userFacing: true });
   }
   const tracer = await Tracer.start({
     userId: input.user?.id ?? null,
@@ -151,7 +156,7 @@ export async function runAgent(input: AgentInput) {
 
   try {
     // 1) Retrieval (hybrid + learned rewards) and reviewer corrections memory
-    emit({ type: 'status', text: 'Recherche dans la base de connaissances HLP…' });
+    emit({ type: 'status', text: msg(lang, 'status.searchKb') });
     const sp = tracer.span('retrieval', 'initial_retrieval', { query: input.question });
     const { hits, qvec } = await retrieve(input.question, 6);
     const corrections = await findCorrections(qvec);
@@ -166,7 +171,7 @@ export async function runAgent(input: AgentInput) {
     const correctionsText = corrections.length
       ? corrections
           .map((c) => {
-            const n = reg.add({ kind: 'correction', title: 'Réponse validée par l’équipe HLP', snippet: c.correctedAnswer }, `co${c.id}`);
+            const n = reg.add({ kind: 'correction', title: msg(lang, 'source.validated'), snippet: c.correctedAnswer }, `co${c.id}`);
             return `[${n}] Question similaire : « ${c.question} »\nRéponse validée : ${c.correctedAnswer}`;
           })
           .join('\n\n')
@@ -192,7 +197,7 @@ export async function runAgent(input: AgentInput) {
     for (let step = 0; step < maxSteps; step++) {
       const lastStep = step === maxSteps - 1;
       const useTools = toolsEnabled && !lastStep;
-      emit({ type: 'status', text: step === 0 ? 'Rédaction de la réponse…' : 'Analyse des nouvelles sources…' });
+      emit({ type: 'status', text: msg(lang, step === 0 ? 'status.writing' : 'status.analysing') });
       const gen = tracer.span('llm', `generation_${step + 1}`, { messages: step === 0 ? messages : messages.slice(-4) });
       let content = '';
       const calls: { id: string; name: string; args: string }[] = [];
@@ -256,12 +261,12 @@ export async function runAgent(input: AgentInput) {
         })),
       });
       for (const [i, c] of validCalls.entries()) {
-        const result = await executeTool(c.name, parseJson<Record<string, string>>(c.args, {}), reg, tracer, emit);
+        const result = await executeTool(c.name, parseJson<Record<string, string>>(c.args, {}), reg, tracer, emit, lang);
         messages.push({ role: 'tool', tool_call_id: c.id || `call_${step}_${i}`, content: result });
       }
     }
 
-    if (!answer.trim()) answer = "Désolé, je n'ai pas pu formuler de réponse. Pouvez-vous reformuler votre question ?";
+    if (!answer.trim()) answer = msg(lang, 'answer.fallback');
     const sources = reg.finalize(answer);
     emit({ type: 'sources', sources: sources.filter((s) => s.cited) });
     await tracer.finish({ answer, sources });
@@ -280,18 +285,19 @@ async function executeTool(
   reg: SourceRegistry,
   tracer: Tracer,
   emit: (e: AgentEvent) => void,
+  lang: Lang,
 ): Promise<string> {
   const sp = tracer.span('tool', name, args);
   try {
     if (name === 'search_knowledge') {
-      emit({ type: 'status', text: `Recherche approfondie : « ${args.query} »` });
+      emit({ type: 'status', text: msg(lang, 'status.deepSearch', { q: String(args.query ?? '') }) });
       const { hits } = await retrieve(String(args.query ?? ''), 5);
       sp.end(hits.map((h) => ({ title: h.title, page: h.page, score: +h.score.toFixed(5) })));
       return formatHits(hits, reg);
     }
     if (name === 'search_web') {
       tracer.usedWeb = true;
-      emit({ type: 'status', text: `Recherche en ligne${args.site ? ` sur ${args.site}` : ''} : « ${args.query} »` });
+      emit({ type: 'status', text: msg(lang, 'status.webSearch', { q: String(args.query ?? ''), site: args.site ? msg(lang, 'status.webSite', { s: String(args.site) }) : '' }) });
       const { provider, results } = await searchWeb(String(args.query ?? ''), args.site);
       sp.end(results, { provider });
       if (!results.length) return 'Aucun résultat sur les sites de confiance.';
@@ -305,7 +311,7 @@ async function executeTool(
     if (name === 'read_webpage') {
       tracer.usedWeb = true;
       const url = String(args.url ?? '');
-      emit({ type: 'status', text: `Lecture de ${new URL(url).hostname}…` });
+      emit({ type: 'status', text: msg(lang, 'status.reading', { h: new URL(url).hostname }) });
       const page = await fetchPage(url);
       learnFromPage(page);
       const n = reg.add({ kind: 'web', title: page.title, url: page.url, snippet: page.text.slice(0, 1200) }, `w${page.url}`);
