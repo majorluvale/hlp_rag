@@ -62,7 +62,7 @@ export function Knowledge({ isAdmin }: { isAdmin: boolean }) {
     <section className="card pad">
       <div className="row between">
         <h3>Base de connaissances</h3>
-        <button className="btn primary" disabled={st.running} onClick={async () => { await api('/admin/knowledge/reindex', { body: {} }); load(); }}>
+        <button className="btn primary" disabled={st.running || !d.canIngest} title={d.canIngest ? '' : 'Sur Vercel : lancez « npm run ingest » depuis votre PC'} onClick={async () => { await api('/admin/knowledge/reindex', { body: {} }); load(); }}>
           {st.running ? `Indexation ${st.done}/${st.total}…` : 'Indexer les nouveaux documents'}
         </button>
       </div>
@@ -70,6 +70,10 @@ export function Knowledge({ isAdmin }: { isAdmin: boolean }) {
         Déposez des PDF dans les dossiers configurés (DOCS_DIRS) puis lancez l’indexation. Les pages web officielles lues par l’assistant sont apprises automatiquement.
         Le score de fiabilité de chaque source évolue avec les retours (renforcement).
       </p>
+      {!d.canIngest && <div className="alert info">Version en ligne (Vercel) : ajoutez des documents en lançant <code>npm run ingest</code> sur votre PC, avec <code>DATABASE_URL</code> pointant vers la base Turso.</div>}
+      {d.indexEmbedding && !d.indexEmbedding.startsWith(d.embedding.family + ':') && (
+        <div className="alert">L’index a été construit avec « {d.indexEmbedding} » mais le modèle d’embeddings actuel est « {d.embedding.model} ». Ré-indexez ou utilisez la même famille de modèle.</div>
+      )}
       {st.running && <div className="alert info">En cours : {st.current}</div>}
       {st.errors?.length > 0 && <div className="alert">{st.errors.join(' · ')}</div>}
       <table className="table">

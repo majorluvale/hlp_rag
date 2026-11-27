@@ -13,10 +13,13 @@
     "start": "tsx server/index.ts",
     "ingest": "tsx server/rag/ingest.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
-    "tunnel": "cloudflared tunnel --url http://localhost:3000"
+    "tunnel": "cloudflared tunnel --url http://localhost:3000",
+    "vercel-build": "vite build && node scripts/build-vercel.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.2",
+    "@libsql/client": "^0.18.0",
+    "@vercel/functions": "^3.12.0",
     "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^18.0.10",
@@ -38,6 +41,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "concurrently": "^10.0.7",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.4.0"

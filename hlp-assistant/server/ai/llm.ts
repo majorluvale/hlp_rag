@@ -1,10 +1,19 @@
 import OpenAI from 'openai';
-import { config } from '../config';
+import { getLlmConfig, type LlmConfig } from '../settings';
 
-/** Any OpenAI-compatible endpoint: Groq (default), OpenAI, Azure OpenAI, Mistral, Ollama, vLLM… */
-export const llm = new OpenAI({
-  baseURL: config.llm.baseURL,
-  apiKey: config.llm.apiKey || 'missing-key',
-});
+/**
+ * Any OpenAI-compatible endpoint: Groq (default), OpenAI, Mistral, OpenRouter, Anthropic,
+ * Azure OpenAI, Ollama, vLLM… Configured in the console (Settings) or in .env.
+ */
+let cached: { key: string; client: OpenAI } | null = null;
 
-export const llmConfigured = () => Boolean(config.llm.apiKey);
+export function makeClient(baseURL: string, apiKey: string) {
+  return new OpenAI({ baseURL, apiKey: apiKey || 'missing-key', timeout: 120_000, maxRetries: 1 });
+}
+
+export async function getLlm(): Promise<{ client: OpenAI; cfg: LlmConfig }> {
+  const cfg = await getLlmConfig();
+  const key = `${cfg.baseURL}|${cfg.apiKey}`;
+  if (!cached || cached.key !== key) cached = { key, client: makeClient(cfg.baseURL, cfg.apiKey) };
+  return { client: cached.client, cfg };
+}

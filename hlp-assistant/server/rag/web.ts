@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { extractText, getDocumentProxy } from 'unpdf';
 import { config } from '../config';
+import { background } from '../background';
 import { get, now, run } from '../db';
 import { addDocument } from './ingest';
 import { cleanText } from './text';
@@ -81,7 +82,7 @@ async function duckDuckGoSearch(query: string, domains: string[]): Promise<WebRe
   return results.slice(0, 6);
 }
 
-/** Searches only the trusted humanitarian domains (HLP AoR/GPC, NRC, UN-Habitat, CCCM, Shelter/SLSC…). */
+/** Searches only the trusted humanitarian domains (HLP AoR/GPC, NRC, UN-Habitat, Global CCCM Cluster, Global Shelter Cluster, ReliefWeb…). */
 export async function searchWeb(query: string, site?: string): Promise<{ provider: string; results: WebResult[] }> {
   const domains = resolveDomain(site);
   if (config.web.tavilyKey) {
@@ -105,7 +106,7 @@ export interface WebPage {
 
 export async function fetchPage(url: string): Promise<WebPage> {
   if (!isAllowedUrl(url)) throw new Error(`Domaine non autorisé : ${url}`);
-  const cached = get<{ title: string; text: string; fetched_at: number }>('SELECT * FROM web_cache WHERE url = ?', url);
+  const cached = await get<{ title: string; text: string; fetched_at: number }>('SELECT * FROM web_cache WHERE url = ?', url);
   if (cached && now() - cached.fetched_at < CACHE_TTL) return { url, title: cached.title, text: cached.text, cached: true };
 
   const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html,application/pdf;q=0.9,*/*;q=0.5' }, signal: AbortSignal.timeout(20000) });
@@ -132,7 +133,7 @@ export async function fetchPage(url: string): Promise<WebPage> {
     text = cleanText(main);
   }
   text = text.slice(0, 40000);
-  run(
+  await run(
     'INSERT INTO web_cache (url, title, text, fetched_at) VALUES (?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET title = excluded.title, text = excluded.text, fetched_at = excluded.fetched_at',
     url, title, text, now(),
   );
@@ -143,14 +144,17 @@ export async function fetchPage(url: string): Promise<WebPage> {
 export function learnFromPage(page: WebPage) {
   if (!config.web.learnFromWeb || page.text.length < 600) return;
   const id = 'web_' + crypto.createHash('sha1').update(page.url).digest('hex').slice(0, 16);
-  if (get('SELECT id FROM documents WHERE id = ?', id)) return;
-  addDocument({
-    id,
-    title: page.title.slice(0, 200),
-    sourceType: 'web',
-    url: page.url,
-    pages: [{ page: null, text: page.text }],
-  })
-    .then((n) => console.log(`[web] page apprise (${n} chunks) : ${page.url}`))
-    .catch((e) => console.warn('[web] apprentissage impossible :', (e as Error).message));
+  background(
+    (async () => {
+      if (await get('SELECT id FROM documents WHERE id = ? AND chunks > 0', id)) return;
+      const n = await addDocument({
+        id,
+        title: page.title.slice(0, 200),
+        sourceType: 'web',
+        url: page.url,
+        pages: [{ page: null, text: page.text }],
+      });
+      console.log(`[web] page apprise (${n} chunks) : ${page.url}`);
+    })(),
+  );
 }

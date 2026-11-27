@@ -169,7 +169,7 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
             <p>
               Bonjour{user?.displayName ? ` ${user.displayName}` : ''} 👋 Je réponds à vos questions sur le <strong>HLP</strong> à partir
               de la bibliothèque documentaire de l’équipe et, si nécessaire, des sites officiels mis à jour (AoR HLP, NRC, ONU-Habitat,
-              clusters CCCM et Shelter/SLSC). Chaque réponse cite ses sources et est relue par l’équipe HLP.
+              Global Shelter Cluster, Global CCCM Cluster). Chaque réponse cite ses sources et est relue par l’équipe HLP.
             </p>
             <div className="chips">
               {SUGGESTIONS.map((s) => (

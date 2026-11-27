@@ -3,8 +3,9 @@ import { api, type User } from '../api';
 import { Traces } from './Traces';
 import { Prompts } from './Prompts';
 import { Corrections, Knowledge, Users } from './Others';
+import { Settings } from './Settings';
 
-type Tab = 'dashboard' | 'traces' | 'corrections' | 'prompts' | 'knowledge' | 'users';
+type Tab = 'dashboard' | 'traces' | 'corrections' | 'prompts' | 'knowledge' | 'users' | 'settings';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: 'Tableau de bord' },
   { id: 'traces', label: 'Traces & évaluation' },
@@ -12,6 +13,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'prompts', label: 'Prompts' },
   { id: 'knowledge', label: 'Connaissances' },
   { id: 'users', label: 'Utilisateurs' },
+  { id: 'settings', label: 'Paramètres' },
 ];
 
 const readTab = (): Tab => {
@@ -35,7 +37,7 @@ export function Console({ user }: { user: User }) {
           <p className="muted small">Inspectez chaque réponse, notez-la, corrigez-la : les corrections et les notes sont réutilisées par l’assistant.</p>
         </div>
         <nav className="tabs">
-          {TABS.map((t) => (
+          {TABS.filter((t) => t.id !== 'settings' || user.role === 'admin').map((t) => (
             <a key={t.id} href={`#/console/${t.id}`} className={`tab ${tab === t.id ? 'active' : ''}`}>
               {t.label}
             </a>
@@ -48,6 +50,7 @@ export function Console({ user }: { user: User }) {
       {tab === 'prompts' && <Prompts />}
       {tab === 'knowledge' && <Knowledge isAdmin={user.role === 'admin'} />}
       {tab === 'users' && <Users isAdmin={user.role === 'admin'} />}
+      {tab === 'settings' && user.role === 'admin' && <Settings />}
     </main>
   );
 }

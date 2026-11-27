@@ -1,4 +1,4 @@
-import { all, fromBlob } from '../db';
+import { all, fromBlob, get } from '../db';
 import { tokenize } from './text';
 
 export interface IndexedChunk {
@@ -131,9 +131,18 @@ class HybridIndex {
 
 export const index = new HybridIndex();
 
-export function loadIndex() {
-  index.clear();
-  const rows = all<{
+let lastSignature = '';
+let lastCheck = 0;
+
+async function signature() {
+  const r = await get<{ n: number; m: number | null }>('SELECT COUNT(*) AS n, MAX(ingested_at) AS m FROM documents');
+  return `${r?.n ?? 0}:${r?.m ?? 0}`;
+}
+
+/** Loads all chunks from the database into memory (fetch first, then swap synchronously). */
+export async function loadIndex() {
+  const sig = await signature();
+  const rows = await all<{
     id: number;
     doc_id: string;
     page: number | null;
@@ -146,17 +155,34 @@ export function loadIndex() {
     `SELECT c.id, c.doc_id, c.page, c.text, c.embedding, d.title, d.url, d.source_type
      FROM chunks c JOIN documents d ON d.id = c.doc_id`,
   );
+  index.clear();
   for (const r of rows) {
     index.add({
-      id: r.id,
+      id: Number(r.id),
       docId: r.doc_id,
       title: r.title,
-      page: r.page,
+      page: r.page == null ? null : Number(r.page),
       url: r.url,
       sourceType: r.source_type,
       text: r.text,
       vec: fromBlob(r.embedding),
     });
   }
+  lastSignature = sig;
+  lastCheck = Date.now();
   return index.size;
+}
+
+/**
+ * Several serverless instances may run at once: every minute, check whether documents
+ * changed elsewhere (new ingest, learned web page, removal) and reload if so.
+ */
+export async function ensureFreshIndex() {
+  if (Date.now() - lastCheck < 60_000) return;
+  lastCheck = Date.now();
+  if ((await signature()) !== lastSignature) await loadIndex();
+}
+
+export async function markIndexSynced() {
+  lastSignature = await signature();
 }

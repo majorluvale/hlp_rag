@@ -1,6 +1,6 @@
 import { all, fromBlob } from '../db';
 import { cosine, embedOne } from './embeddings';
-import { index } from './hybridIndex';
+import { ensureFreshIndex, index } from './hybridIndex';
 
 export interface Hit {
   chunkId: number;
@@ -23,8 +23,8 @@ export interface CorrectionHit {
 }
 
 /** Posterior mean of the Beta(alpha, beta) reward of each source, learned from feedback. */
-export function rewardMap(): Map<string, number> {
-  const rows = all<{ doc_id: string; alpha: number; beta: number }>('SELECT doc_id, alpha, beta FROM source_rewards');
+export async function rewardMap(): Promise<Map<string, number>> {
+  const rows = await all<{ doc_id: string; alpha: number; beta: number }>('SELECT doc_id, alpha, beta FROM source_rewards');
   return new Map(rows.map((r) => [r.doc_id, r.alpha / (r.alpha + r.beta)]));
 }
 
@@ -35,9 +35,9 @@ const MAX_PER_DOC = 3;
  * from user and reviewer feedback (reinforcement signal), with per-document diversity.
  */
 export async function retrieve(query: string, k = 6, qvec?: Float32Array) {
-  const qv = qvec ?? (await embedOne(query, 'query'));
+  await ensureFreshIndex();
+  const [qv, rewards] = await Promise.all([qvec ? Promise.resolve(qvec) : embedOne(query, 'query'), rewardMap()]);
   const candidates = index.search(qv, query, 40);
-  const rewards = rewardMap();
 
   const scored: Hit[] = candidates.map((c) => {
     const reward = rewards.get(c.chunk.docId) ?? 0.5;
@@ -73,8 +73,8 @@ export async function retrieve(query: string, k = 6, qvec?: Float32Array) {
 const CORRECTION_THRESHOLD = 0.86;
 
 /** Reviewer-validated answers to similar questions: injected with top priority in the prompt. */
-export function findCorrections(qvec: Float32Array, limit = 3): CorrectionHit[] {
-  const rows = all<{ id: string; question: string; corrected_answer: string; embedding: Uint8Array }>(
+export async function findCorrections(qvec: Float32Array, limit = 3): Promise<CorrectionHit[]> {
+  const rows = await all<{ id: string; question: string; corrected_answer: string; embedding: Uint8Array }>(
     'SELECT id, question, corrected_answer, embedding FROM corrections WHERE active = 1',
   );
   return rows

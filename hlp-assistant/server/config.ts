@@ -13,7 +13,7 @@ function list(value: string | undefined, fallback: string[]): string[] {
 
 export const config = {
   port: Number(process.env.PORT ?? 3000),
-  dataDir: path.resolve(root, process.env.DATA_DIR ?? 'data'),
+  dataDir: path.resolve(root, process.env.DATA_DIR ?? (process.env.VERCEL ? '/tmp/hlp' : 'data')),
   docsDirs: list(process.env.DOCS_DIRS, ['data/docs', '../../docs', '../../knowledge']).map((d) =>
     path.resolve(root, d),
   ),
@@ -28,7 +28,22 @@ export const config = {
     maxSteps: Number(process.env.AGENT_MAX_STEPS ?? 6),
   },
 
-  embeddingModel: process.env.EMBEDDING_MODEL ?? 'Xenova/multilingual-e5-small',
+  isVercel: Boolean(process.env.VERCEL),
+
+  /** Turso / libSQL. Empty = local SQLite file in DATA_DIR. */
+  db: {
+    url: process.env.DATABASE_URL ?? process.env.TURSO_DATABASE_URL ?? '',
+    authToken: process.env.DATABASE_AUTH_TOKEN ?? process.env.TURSO_AUTH_TOKEN ?? '',
+  },
+
+  /** local = transformers.js on CPU ; huggingface = HF Inference API (same e5 model, for Vercel) ; openai = any OpenAI-compatible /embeddings */
+  embedding: {
+    provider: (process.env.EMBEDDING_PROVIDER ?? 'local') as 'local' | 'huggingface' | 'openai',
+    model: process.env.EMBEDDING_MODEL ?? '',
+    hfToken: process.env.HF_TOKEN ?? '',
+    baseURL: process.env.EMBEDDING_BASE_URL ?? 'https://api.openai.com/v1',
+    apiKey: process.env.EMBEDDING_API_KEY ?? '',
+  },
 
   sessionSecret: process.env.SESSION_SECRET ?? 'dev-secret-change-me',
   adminEmails: list(process.env.ADMIN_EMAILS, []).map((e) => e.toLowerCase()),

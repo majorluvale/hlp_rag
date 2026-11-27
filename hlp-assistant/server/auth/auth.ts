@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { config } from '../config';
-import { get, now, run, transaction, uid, type UserRow } from '../db';
+import { batch, get, now, q, run, uid, type UserRow } from '../db';
 import { sendOtpEmail } from './mailer';
 
 const COOKIE = 'hlp_sid';
@@ -32,37 +32,37 @@ function setSessionCookie(req: Request, res: Response, token: string) {
   });
 }
 
-function createSession(userId: string): string {
+async function createSession(userId: string): Promise<string> {
   const token = crypto.randomBytes(32).toString('base64url');
-  run('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)', sha256(token), userId, now(), now() + SESSION_TTL);
+  await run('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)', sha256(token), userId, now(), now() + SESSION_TTL);
   return token;
 }
 
-function createGuest(): UserRow {
+async function createGuest(): Promise<UserRow> {
   const id = uid('u_');
   const t = now();
-  run("INSERT INTO users (id, role, is_guest, created_at, last_seen_at) VALUES (?, 'guest', 1, ?, ?)", id, t, t);
-  return get<UserRow>('SELECT * FROM users WHERE id = ?', id)!;
+  await run("INSERT INTO users (id, role, is_guest, created_at, last_seen_at) VALUES (?, 'guest', 1, ?, ?)", id, t, t);
+  return (await get<UserRow>('SELECT * FROM users WHERE id = ?', id))!;
 }
 
 /** Every visitor gets an identity: a guest by default (no login needed), a member after OTP. */
-export function attachUser(req: Request, res: Response, next: NextFunction) {
+export async function attachUser(req: Request, res: Response, next: NextFunction) {
   const token = req.cookies?.[COOKIE] as string | undefined;
   if (token) {
-    const row = get<UserRow & { expires_at: number }>(
+    const row = await get<UserRow & { expires_at: number }>(
       'SELECT u.*, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?',
       sha256(token),
     );
     if (row && row.expires_at > now()) {
       req.user = row;
-      if (now() - row.last_seen_at > 60000) run('UPDATE users SET last_seen_at = ? WHERE id = ?', now(), row.id);
+      if (now() - row.last_seen_at > 60000) await run('UPDATE users SET last_seen_at = ? WHERE id = ?', now(), row.id);
       return next();
     }
   }
   // Only API calls create guests (avoids creating users for static asset requests)
   if (!req.path.startsWith('/api/')) return next();
-  const guest = createGuest();
-  setSessionCookie(req, res, createSession(guest.id));
+  const guest = await createGuest();
+  setSessionCookie(req, res, await createSession(guest.id));
   req.user = guest;
   next();
 }
@@ -79,77 +79,83 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export async function requestOtp(emailRaw: string, isLocalRequest = false) {
   const email = String(emailRaw ?? '').trim().toLowerCase();
   if (!EMAIL_RE.test(email) || email.length > 200) return { status: 400, body: { error: 'Adresse email invalide' } };
-  const last = get<{ created_at: number }>('SELECT created_at FROM otp_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1', email);
+  const last = await get<{ created_at: number }>('SELECT created_at FROM otp_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1', email);
   if (last && now() - last.created_at < OTP_RESEND_DELAY) {
     return { status: 429, body: { error: 'Un code vient d’être envoyé. Patientez quelques secondes.' } };
   }
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
-  run('UPDATE otp_codes SET consumed = 1 WHERE email = ? AND consumed = 0', email);
-  run('INSERT INTO otp_codes (email, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?)', email, hmac(email + ':' + code), now() + OTP_TTL, now());
+  await batch([
+    q('UPDATE otp_codes SET consumed = 1 WHERE email = ? AND consumed = 0', email),
+    q('INSERT INTO otp_codes (email, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?)', email, hmac(email + ':' + code), now() + OTP_TTL, now()),
+  ]);
   const { delivered } = await sendOtpEmail(email, code);
   return {
     status: 200,
-    body: { ok: true, delivered, // the demo code is only ever returned to a browser on localhost, never through a tunnel
-      ...(config.devShowOtp && !delivered && isLocalRequest ? { devCode: code } : {}) },
+    body: {
+      ok: true,
+      delivered,
+      // the demo code is only ever returned to a browser on localhost, never through a tunnel or online
+      ...(config.devShowOtp && !delivered && isLocalRequest ? { devCode: code } : {}),
+    },
   };
 }
 
-export function verifyOtp(req: Request, res: Response, emailRaw: string, codeRaw: string) {
+export async function verifyOtp(req: Request, res: Response, emailRaw: string, codeRaw: string) {
   const email = String(emailRaw ?? '').trim().toLowerCase();
   const code = String(codeRaw ?? '').replace(/\D/g, '');
-  const otp = get<{ id: number; code_hash: string; attempts: number; expires_at: number }>(
+  const otp = await get<{ id: number; code_hash: string; attempts: number; expires_at: number }>(
     'SELECT * FROM otp_codes WHERE email = ? AND consumed = 0 ORDER BY created_at DESC LIMIT 1',
     email,
   );
   if (!otp || otp.expires_at < now()) return { status: 400, body: { error: 'Code expiré. Demandez un nouveau code.' } };
   if (otp.attempts >= OTP_MAX_ATTEMPTS) return { status: 429, body: { error: 'Trop de tentatives. Demandez un nouveau code.' } };
-  const ok =
-    code.length === 6 &&
-    crypto.timingSafeEqual(Buffer.from(otp.code_hash), Buffer.from(hmac(email + ':' + code)));
+  const ok = code.length === 6 && crypto.timingSafeEqual(Buffer.from(otp.code_hash), Buffer.from(hmac(email + ':' + code)));
   if (!ok) {
-    run('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?', otp.id);
+    await run('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?', otp.id);
     return { status: 400, body: { error: 'Code incorrect' } };
   }
-  run('UPDATE otp_codes SET consumed = 1 WHERE id = ?', otp.id);
+  await run('UPDATE otp_codes SET consumed = 1 WHERE id = ?', otp.id);
 
   const guest = req.user?.is_guest ? req.user : null;
-  const isAdmin = config.adminEmails.includes(email);
-  const user = transaction(() => {
-    let u = get<UserRow>('SELECT * FROM users WHERE email = ?', email);
-    if (!u) {
-      if (guest) {
-        // promote the guest account: keeps its conversations and context
-        run('UPDATE users SET email = ?, is_guest = 0, role = ? WHERE id = ?', email, isAdmin ? 'admin' : 'user', guest.id);
-        u = get<UserRow>('SELECT * FROM users WHERE id = ?', guest.id)!;
-      } else {
-        const id = uid('u_');
-        run("INSERT INTO users (id, email, role, is_guest, created_at, last_seen_at) VALUES (?, ?, ?, 0, ?, ?)", id, email, isAdmin ? 'admin' : 'user', now(), now());
-        u = get<UserRow>('SELECT * FROM users WHERE id = ?', id)!;
-      }
+  const role = config.adminEmails.includes(email) ? 'admin' : 'user';
+  let user = await get<UserRow>('SELECT * FROM users WHERE email = ?', email);
+  if (!user) {
+    if (guest) {
+      // promote the guest account: keeps its conversations and context
+      await run('UPDATE users SET email = ?, is_guest = 0, role = ? WHERE id = ?', email, role, guest.id);
+      user = (await get<UserRow>('SELECT * FROM users WHERE id = ?', guest.id))!;
     } else {
-      if (isAdmin && u.role !== 'admin') run("UPDATE users SET role = 'admin' WHERE id = ?", u.id);
-      if (guest && guest.id !== u.id) {
-        // merge guest history into the existing account
-        run('UPDATE conversations SET user_id = ? WHERE user_id = ?', u.id, guest.id);
-        run('UPDATE traces SET user_id = ? WHERE user_id = ?', u.id, guest.id);
-        run('UPDATE feedback SET user_id = ? WHERE user_id = ?', u.id, guest.id);
-        if (u.profile_json === '{}' && guest.profile_json !== '{}') run('UPDATE users SET profile_json = ? WHERE id = ?', guest.profile_json, u.id);
-        run('DELETE FROM users WHERE id = ?', guest.id);
-      }
-      u = get<UserRow>('SELECT * FROM users WHERE id = ?', u.id)!;
+      const id = uid('u_');
+      await run('INSERT INTO users (id, email, role, is_guest, created_at, last_seen_at) VALUES (?, ?, ?, 0, ?, ?)', id, email, role, now(), now());
+      user = (await get<UserRow>('SELECT * FROM users WHERE id = ?', id))!;
     }
-    return u;
-  });
+  } else {
+    const stmts = [];
+    if (role === 'admin' && user.role !== 'admin') stmts.push(q("UPDATE users SET role = 'admin' WHERE id = ?", user.id));
+    if (guest && guest.id !== user.id) {
+      // merge the guest history into the existing account
+      stmts.push(
+        q('UPDATE conversations SET user_id = ? WHERE user_id = ?', user.id, guest.id),
+        q('UPDATE traces SET user_id = ? WHERE user_id = ?', user.id, guest.id),
+        q('UPDATE feedback SET user_id = ? WHERE user_id = ?', user.id, guest.id),
+        q('DELETE FROM sessions WHERE user_id = ?', guest.id),
+        q('DELETE FROM users WHERE id = ?', guest.id),
+      );
+      if (user.profile_json === '{}' && guest.profile_json !== '{}') stmts.push(q('UPDATE users SET profile_json = ? WHERE id = ?', guest.profile_json, user.id));
+    }
+    await batch(stmts);
+    user = (await get<UserRow>('SELECT * FROM users WHERE id = ?', user.id))!;
+  }
 
   const old = req.cookies?.[COOKIE] as string | undefined;
-  if (old) run('DELETE FROM sessions WHERE token_hash = ?', sha256(old));
-  setSessionCookie(req, res, createSession(user.id));
+  if (old) await run('DELETE FROM sessions WHERE token_hash = ?', sha256(old));
+  setSessionCookie(req, res, await createSession(user.id));
   return { status: 200, body: { user: publicUser(user), needsName: !user.display_name } };
 }
 
-export function logout(req: Request, res: Response) {
+export async function logout(req: Request, res: Response) {
   const token = req.cookies?.[COOKIE] as string | undefined;
-  if (token) run('DELETE FROM sessions WHERE token_hash = ?', sha256(token));
+  if (token) await run('DELETE FROM sessions WHERE token_hash = ?', sha256(token));
   res.clearCookie(COOKIE, { path: '/' });
 }
 

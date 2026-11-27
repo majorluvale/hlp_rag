@@ -4,9 +4,10 @@ import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { extractText, getDocumentProxy } from 'unpdf';
 import { config } from '../config';
-import { get, now, run, toBlob, transaction } from '../db';
-import { embed } from './embeddings';
-import { index } from './hybridIndex';
+import { all, batch, get, initDb, now, q, run, toBlob } from '../db';
+import { setSettings } from '../settings';
+import { embed, embeddingInfo } from './embeddings';
+import { index, markIndexSynced } from './hybridIndex';
 import { chunkText, cleanText, prettyTitle } from './text';
 
 export interface IngestStatus {
@@ -72,28 +73,35 @@ export async function addDocument(doc: {
 
   const vectors: Float32Array[] = [];
   for (let i = 0; i < pieces.length; i += 16) {
-    const batch = pieces.slice(i, i + 16);
-    vectors.push(...(await embed(batch.map((b) => `${doc.title}. ${b.text}`), 'passage')));
+    const slice = pieces.slice(i, i + 16);
+    vectors.push(...(await embed(slice.map((b) => `${doc.title}. ${b.text}`), 'passage')));
   }
 
-  const ids: number[] = [];
-  transaction(() => {
-    run('DELETE FROM documents WHERE id = ?', doc.id);
-    run(
+  // The document row is written first with chunks = 0 and only marked complete at the end,
+  // so an interrupted ingest is retried next time instead of leaving a half-indexed document.
+  await batch([
+    q('DELETE FROM chunks WHERE doc_id = ?', doc.id),
+    q('DELETE FROM documents WHERE id = ?', doc.id),
+    q(
       `INSERT INTO documents (id, path, url, title, source_type, hash, pages, chunks, ingested_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      doc.id, doc.path, doc.url, doc.title, doc.sourceType, doc.hash, doc.pages.length, pieces.length, now(),
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      doc.id, doc.path, doc.url, doc.title, doc.sourceType, doc.hash, doc.pages.length, now(),
+    ),
+  ]);
+  for (let i = 0; i < pieces.length; i += 50) {
+    await batch(
+      pieces.slice(i, i + 50).map((p, j) =>
+        q('INSERT INTO chunks (doc_id, page, text, embedding) VALUES (?, ?, ?, ?)', doc.id, p.page, p.text, toBlob(vectors[i + j])),
+      ),
     );
-    pieces.forEach((p, i) => {
-      const r = run('INSERT INTO chunks (doc_id, page, text, embedding) VALUES (?, ?, ?, ?)', doc.id, p.page, p.text, toBlob(vectors[i]));
-      ids.push(Number(r.lastInsertRowid));
-    });
-  });
+  }
+  await run('UPDATE documents SET chunks = ?, ingested_at = ? WHERE id = ?', pieces.length, now(), doc.id);
+  const ids = await all<{ id: number }>('SELECT id FROM chunks WHERE doc_id = ? ORDER BY id', doc.id);
 
   index.removeDoc(doc.id);
   pieces.forEach((p, i) =>
     index.add({
-      id: ids[i],
+      id: Number(ids[i]?.id ?? 0),
       docId: doc.id,
       title: doc.title,
       page: p.page,
@@ -103,6 +111,8 @@ export async function addDocument(doc: {
       vec: vectors[i],
     }),
   );
+  await markIndexSynced();
+  await setSettings({ 'index.embedding': `${embeddingInfo.family}:${vectors[0].length}` }, 'ingest');
   return pieces.length;
 }
 
@@ -117,8 +127,7 @@ export async function ingestAll(): Promise<IngestStatus> {
         const buf = fs.readFileSync(file);
         const hash = crypto.createHash('sha1').update(buf).digest('hex');
         const id = 'doc_' + hash.slice(0, 16);
-        const existing = get<{ hash: string }>('SELECT hash FROM documents WHERE id = ?', id);
-        if (existing) {
+        if (await get('SELECT id FROM documents WHERE id = ? AND chunks > 0', id)) {
           ingestStatus.skipped++;
         } else {
           const pages = await extractPages(file, buf);
@@ -126,7 +135,7 @@ export async function ingestAll(): Promise<IngestStatus> {
             id,
             title: prettyTitle(path.basename(file)),
             sourceType: 'doc',
-            path: file,
+            path: path.basename(file),
             hash,
             pages: pages.map((text, i) => ({ page: pages.length > 1 ? i + 1 : null, text })),
           });
@@ -148,11 +157,17 @@ export async function ingestAll(): Promise<IngestStatus> {
   return ingestStatus;
 }
 
-// CLI: npm run ingest
+// CLI: npm run ingest  (works against local SQLite or, with DATABASE_URL set, against Turso)
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  console.log('[ingest] dossiers :', config.docsDirs.join(' | '));
-  ingestAll().then((s) => {
+  (async () => {
+    await initDb();
+    console.log(`[ingest] base : ${config.db.url ? 'Turso ' + config.db.url : 'SQLite local'} · embeddings : ${embeddingInfo.provider} ${embeddingInfo.model}`);
+    console.log('[ingest] dossiers :', config.docsDirs.join(' | '));
+    const s = await ingestAll();
     console.log(`[ingest] terminé : ${s.added} ajoutés, ${s.skipped} déjà indexés, ${s.errors.length} erreurs`);
     process.exit(0);
+  })().catch((e) => {
+    console.error('[ingest]', e);
+    process.exit(1);
   });
 }

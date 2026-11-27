@@ -1,10 +1,11 @@
 import type OpenAI from 'openai';
 import { config } from '../config';
-import { all, parseJson, run, type UserProfile, type UserRow } from '../db';
+import { background } from '../background';
+import { all, batch, parseJson, q, type UserProfile, type UserRow } from '../db';
 import { findCorrections, retrieve, type Hit } from '../rag/retrieval';
 import { fetchPage, learnFromPage, searchWeb } from '../rag/web';
 import { autoEvaluate } from './evaluator';
-import { llm } from './llm';
+import { getLlm } from './llm';
 import { getActivePrompt, render } from './prompts';
 import { Tracer, type TraceSource } from './tracing';
 
@@ -33,7 +34,7 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'search_knowledge',
       description:
-        "Recherche dans la base documentaire HLP interne (guidances NRC, AoR HLP, Protection, CCCM, Shelter…). Utilise des mots-clés précis ; reformule en anglais si besoin.",
+        "Recherche dans la base documentaire HLP interne (guidances NRC, AoR HLP, Protection, CCCM, Shelter, SLSC…). Utilise des mots-clés précis ; reformule en anglais si besoin.",
       parameters: {
         type: 'object',
         properties: { query: { type: 'string', description: 'Requête de recherche' } },
@@ -106,7 +107,7 @@ function formatHits(hits: Hit[], reg: SourceRegistry): string {
     .join('\n\n');
 }
 
-export function buildUserContext(user: UserRow | null): string {
+export async function buildUserContext(user: UserRow | null): Promise<string> {
   if (!user) return '- Utilisateur de test (playground)';
   const p = parseJson<UserProfile>(user.profile_json, {});
   const lines = [
@@ -120,7 +121,7 @@ export function buildUserContext(user: UserRow | null): string {
     p.language && `- Langue préférée : ${p.language}`,
     p.interests && `- Centres d'intérêt : ${p.interests}`,
   ].filter(Boolean) as string[];
-  const recent = all<{ title: string }>(
+  const recent = await all<{ title: string }>(
     'SELECT title FROM conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 5',
     user.id,
   );
@@ -131,33 +132,36 @@ export function buildUserContext(user: UserRow | null): string {
 
 export async function runAgent(input: AgentInput) {
   const emit = input.emit ?? (() => {});
-  const system = getActivePrompt('system');
-  const userContext = buildUserContext(input.user);
-  const tracer = new Tracer({
+  const [{ client, cfg }, system, userContext] = await Promise.all([getLlm(), getActivePrompt('system'), buildUserContext(input.user)]);
+  if (!cfg.apiKey && !/localhost|127\.0\.0\.1/.test(cfg.baseURL)) {
+    throw Object.assign(new Error('Aucune clé API LLM configurée. Un administrateur doit la renseigner dans Observabilité → Paramètres.'), { userFacing: true });
+  }
+  const tracer = await Tracer.start({
     userId: input.user?.id ?? null,
     conversationId: input.conversationId,
     question: input.question,
     userContext,
     promptVersionId: input.promptOverride ? null : system.id,
-    model: config.llm.model,
+    model: cfg.model,
     playground: input.playground,
   });
   const reg = new SourceRegistry();
   let answer = '';
+  const maxSteps = Math.min(10, Math.max(1, cfg.maxSteps || 6));
 
   try {
     // 1) Retrieval (hybrid + learned rewards) and reviewer corrections memory
     emit({ type: 'status', text: 'Recherche dans la base de connaissances HLP…' });
     const sp = tracer.span('retrieval', 'initial_retrieval', { query: input.question });
     const { hits, qvec } = await retrieve(input.question, 6);
-    const corrections = findCorrections(qvec);
+    const corrections = await findCorrections(qvec);
     sp.end(
       hits.map((h) => ({ title: h.title, page: h.page, score: +h.score.toFixed(5), cosine: +h.cosine.toFixed(3), reward: +h.reward.toFixed(2) })),
       { corrections: corrections.map((c) => ({ id: c.id, similarity: +c.similarity.toFixed(3) })) },
     );
     if (corrections.length) {
       tracer.usedCorrections = true;
-      for (const c of corrections) run('UPDATE corrections SET hits = hits + 1 WHERE id = ?', c.id);
+      await batch(corrections.map((c) => q('UPDATE corrections SET hits = hits + 1 WHERE id = ?', c.id)));
     }
     const correctionsText = corrections.length
       ? corrections
@@ -185,8 +189,8 @@ export async function runAgent(input: AgentInput) {
 
     // 2) Agent loop: the model decides to answer or to use tools (more retrieval, web search, page reading)
     let toolsEnabled = true;
-    for (let step = 0; step < config.llm.maxSteps; step++) {
-      const lastStep = step === config.llm.maxSteps - 1;
+    for (let step = 0; step < maxSteps; step++) {
+      const lastStep = step === maxSteps - 1;
       const useTools = toolsEnabled && !lastStep;
       emit({ type: 'status', text: step === 0 ? 'Rédaction de la réponse…' : 'Analyse des nouvelles sources…' });
       const gen = tracer.span('llm', `generation_${step + 1}`, { messages: step === 0 ? messages : messages.slice(-4) });
@@ -195,11 +199,11 @@ export async function runAgent(input: AgentInput) {
       type Usage = { prompt_tokens?: number; completion_tokens?: number };
       let usage: Usage | null = null;
       try {
-        const stream = await llm.chat.completions.create(
+        const stream = await client.chat.completions.create(
           {
-            model: config.llm.model,
+            model: cfg.model,
             messages,
-            temperature: config.llm.temperature,
+            temperature: cfg.temperature,
             max_tokens: 2500,
             stream: true,
             stream_options: { include_usage: true },
@@ -235,7 +239,7 @@ export async function runAgent(input: AgentInput) {
       }
       tracer.addUsage(usage);
       const validCalls = calls.filter(Boolean).filter((c) => c.name);
-      gen.end({ content, tool_calls: validCalls.map((c) => ({ name: c.name, args: c.args })) }, { usage, model: config.llm.model });
+      gen.end({ content, tool_calls: validCalls.map((c) => ({ name: c.name, args: c.args })) }, { usage, model: cfg.model });
 
       if (!validCalls.length) {
         answer = content;
@@ -260,12 +264,12 @@ export async function runAgent(input: AgentInput) {
     if (!answer.trim()) answer = "Désolé, je n'ai pas pu formuler de réponse. Pouvez-vous reformuler votre question ?";
     const sources = reg.finalize(answer);
     emit({ type: 'sources', sources: sources.filter((s) => s.cited) });
-    tracer.finish({ answer, sources });
-    void autoEvaluate(tracer.id, input.question, answer, sources.filter((s) => s.cited));
+    await tracer.finish({ answer, sources });
+    background(autoEvaluate(tracer.id, input.question, answer, sources.filter((s) => s.cited)));
     return { answer, traceId: tracer.id, sources: sources.filter((s) => s.cited) };
   } catch (e) {
     const msg = (e as Error).message;
-    tracer.finish({ answer, sources: reg.finalize(answer), error: msg });
+    await tracer.finish({ answer, sources: reg.finalize(answer), error: msg }).catch(() => {});
     throw Object.assign(new Error(msg), { traceId: tracer.id });
   }
 }

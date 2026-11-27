@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api, type Profile, type User } from '../api';
 import { Modal } from './LoginModal';
 
-const SECTORS = ['HLP', 'Shelter / Abris', 'CCCM', 'Protection', 'ICLA / Assistance juridique', 'Coordination de cluster', 'Bailleur', 'Autorité locale / gouvernement', 'Organisation communautaire', 'Recherche', 'Autre'];
+const SECTORS = ['HLP', 'SLSC (Shelter, Land and Site Coordination)', 'Shelter / Abris', 'CCCM', 'Protection', 'ICLA / Assistance juridique', 'Coordination de cluster', 'Bailleur', 'Autorité locale / gouvernement', 'Organisation communautaire', 'Recherche', 'Autre'];
 const LEVELS = ['Débutant', 'Intermédiaire', 'Expert'];
 
 export function ContextModal({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: (u: User) => void }) {

@@ -1,5 +1,6 @@
+import { background } from '../background';
 import { config } from '../config';
-import { now, run, uid } from '../db';
+import { batch, now, q, run, uid, type Stmt } from '../db';
 
 const MAX_JSON = 60000;
 const clip = (v: unknown) => {
@@ -45,7 +46,7 @@ export interface TraceInfo {
 
 /**
  * Records every step of an answer (retrieval, LLM generations, tool calls) so that reviewers
- * can inspect and grade it. Optionally mirrored to Langfuse.
+ * can inspect and grade it in the console. Optionally mirrored to Langfuse.
  */
 export class Tracer {
   readonly id = uid('tr_');
@@ -55,13 +56,17 @@ export class Tracer {
   usedWeb = false;
   usedCorrections = false;
 
-  constructor(private readonly info: TraceInfo) {
-    run(
+  private constructor(private readonly info: TraceInfo) {}
+
+  static async start(info: TraceInfo) {
+    const t = new Tracer(info);
+    await run(
       `INSERT INTO traces (id, user_id, conversation_id, question, user_context, prompt_version_id, model, status, is_playground, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
-      this.id, info.userId, info.conversationId, info.question, info.userContext, info.promptVersionId, info.model,
-      info.playground ? 1 : 0, this.startedAt,
+      t.id, info.userId, info.conversationId, info.question, info.userContext, info.promptVersionId, info.model,
+      info.playground ? 1 : 0, t.startedAt,
     );
+    return t;
   }
 
   span(type: string, name: string, input: unknown) {
@@ -69,11 +74,6 @@ export class Tracer {
     const save = () => {
       rec.duration = now() - rec.start;
       this.spans.push(rec);
-      run(
-        `INSERT INTO spans (id, trace_id, type, name, input_json, output_json, meta_json, error, start_at, duration_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        rec.id, this.id, rec.type, rec.name, clip(rec.input), clip(rec.output), clip(rec.meta), rec.error, rec.start, rec.duration,
-      );
     };
     return {
       end: (output: unknown, meta?: Record<string, unknown>) => {
@@ -95,48 +95,55 @@ export class Tracer {
     this.usage.output += u.completion_tokens ?? 0;
   }
 
-  finish(result: { answer: string; sources: TraceSource[]; error?: string }) {
+  /** Writes spans, sources and the final answer in one batch (one round trip on Turso). */
+  async finish(result: { answer: string; sources: TraceSource[]; error?: string }) {
     const latency = now() - this.startedAt;
-    run(
-      `UPDATE traces SET answer = ?, status = ?, error = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, used_web = ?, used_corrections = ? WHERE id = ?`,
-      result.answer, result.error ? 'error' : 'ok', result.error, latency, this.usage.input, this.usage.output,
-      this.usedWeb ? 1 : 0, this.usedCorrections ? 1 : 0, this.id,
-    );
-    for (const s of result.sources) {
-      run(
-        `INSERT OR REPLACE INTO trace_sources (trace_id, n, kind, doc_id, chunk_id, title, url, page, score, cited, snippet)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        this.id, s.n, s.kind, s.docId, s.chunkId, s.title, s.url, s.page, s.score, s.cited ? 1 : 0, s.snippet.slice(0, 1200),
-      );
-    }
-    mirrorToLangfuse(this.id, this.info, this.spans, result, latency);
+    const stmts: Stmt[] = [
+      q(
+        `UPDATE traces SET answer = ?, status = ?, error = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, used_web = ?, used_corrections = ? WHERE id = ?`,
+        result.answer, result.error ? 'error' : 'ok', result.error, latency, this.usage.input, this.usage.output,
+        this.usedWeb ? 1 : 0, this.usedCorrections ? 1 : 0, this.id,
+      ),
+      ...this.spans.map((s) =>
+        q(
+          `INSERT INTO spans (id, trace_id, type, name, input_json, output_json, meta_json, error, start_at, duration_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          s.id, this.id, s.type, s.name, clip(s.input), clip(s.output), clip(s.meta), s.error, s.start, s.duration,
+        ),
+      ),
+      ...result.sources.map((s) =>
+        q(
+          `INSERT OR REPLACE INTO trace_sources (trace_id, n, kind, doc_id, chunk_id, title, url, page, score, cited, snippet)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          this.id, s.n, s.kind, s.docId, s.chunkId, s.title, s.url, s.page, s.score, s.cited ? 1 : 0, s.snippet.slice(0, 1200),
+        ),
+      ),
+    ];
+    await batch(stmts);
+    background(mirrorToLangfuse(this.id, this.info, this.spans, result, latency));
   }
 }
 
 // ---------- Langfuse (optional) ----------
 const lfEnabled = () => Boolean(config.langfuse.publicKey && config.langfuse.secretKey);
 
-function lfPost(batch: unknown[]) {
+async function lfPost(batchEvents: unknown[]) {
   if (!lfEnabled()) return;
   const auth = Buffer.from(`${config.langfuse.publicKey}:${config.langfuse.secretKey}`).toString('base64');
-  fetch(`${config.langfuse.baseUrl.replace(/\/$/, '')}/api/public/ingestion`, {
+  const res = await fetch(`${config.langfuse.baseUrl.replace(/\/$/, '')}/api/public/ingestion`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
-    body: JSON.stringify({ batch }),
-  }).catch((e) => console.warn('[langfuse]', (e as Error).message));
+    body: JSON.stringify({ batch: batchEvents }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) console.warn('[langfuse]', res.status);
 }
 
-function mirrorToLangfuse(
-  traceId: string,
-  info: TraceInfo,
-  spans: SpanRecord[],
-  result: { answer: string; error?: string },
-  latency: number,
-) {
+async function mirrorToLangfuse(traceId: string, info: TraceInfo, spans: SpanRecord[], result: { answer: string; error?: string }, latency: number) {
   if (!lfEnabled()) return;
   const ts = new Date().toISOString();
   const iso = (ms: number) => new Date(ms).toISOString();
-  const batch: unknown[] = [
+  const events: unknown[] = [
     {
       id: uid('ev_'),
       type: 'trace-create',
@@ -154,7 +161,7 @@ function mirrorToLangfuse(
   ];
   for (const s of spans) {
     const isLlm = s.type === 'llm';
-    batch.push({
+    events.push({
       id: uid('ev_'),
       type: isLlm ? 'generation-create' : 'span-create',
       timestamp: ts,
@@ -173,16 +180,18 @@ function mirrorToLangfuse(
       },
     });
   }
-  lfPost(batch);
+  await lfPost(events);
 }
 
 export function langfuseScore(traceId: string, name: string, value: number, comment?: string) {
-  lfPost([
-    {
-      id: uid('ev_'),
-      type: 'score-create',
-      timestamp: new Date().toISOString(),
-      body: { id: uid('sc_'), traceId, name, value, comment },
-    },
-  ]);
+  background(
+    lfPost([
+      {
+        id: uid('ev_'),
+        type: 'score-create',
+        timestamp: new Date().toISOString(),
+        body: { id: uid('sc_'), traceId, name, value, comment },
+      },
+    ]),
+  );
 }
