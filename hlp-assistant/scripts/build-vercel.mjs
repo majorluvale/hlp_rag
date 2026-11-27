@@ -54,9 +54,20 @@ for (const rel of fileList) {
   fs.cpSync(path.join(root, norm), dest, { dereference: true });
   copied++;
 }
-// the ONNX binding loads shared libraries next to it at runtime (not visible to the tracer)
+// The ONNX binding loads its shared libraries at runtime (not visible to the tracer). On Linux the package
+// install also downloads GPU providers (CUDA/TensorRT, hundreds of MB): useless on Vercel (CPU only).
+const GPU = /providers_(cuda|tensorrt|rocm|migraphx|openvino)|libcudnn|libcublas|libcufft|libcurand|libnvinfer/i;
 for (const dir of fs.globSync('node_modules/onnxruntime-node/bin/napi-v*/linux/x64')) {
-  fs.cpSync(dir, path.join(fn, dir), { recursive: true });
+  fs.cpSync(dir, path.join(fn, dir), { recursive: true, filter: (src) => !GPU.test(path.basename(src)) });
+}
+// small pure-JS packages imported as ESM by the bundle: copy them whole (the tracer only follows the CJS entry)
+for (const pkg of ['onnxruntime-common', 'sharp']) {
+  fs.cpSync(path.join('node_modules', pkg), path.join(fn, 'node_modules', pkg), { recursive: true, dereference: true });
+}
+// remove anything GPU-related or musl-only that the tracer may have pulled in
+const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+for (const f of walk(path.join(fn, 'node_modules'))) {
+  if (GPU.test(path.basename(f)) || f.includes('linuxmusl')) fs.rmSync(f, { force: true });
 }
 fs.rmSync(stub);
 
@@ -117,5 +128,10 @@ const dirSize = (d) =>
     return s + (e.isDirectory() ? dirSize(p) : fs.statSync(p).size);
   }, 0);
 const mb = (dirSize(fn) / 1024 / 1024).toFixed(0);
+const largest = walk(fn)
+  .map((f) => [path.relative(fn, f), fs.statSync(f).size])
+  .sort((a, b) => b[1] - a[1])
+  .slice(0, 8);
+for (const [f, s] of largest) console.log(`[vercel]   ${(s / 1024 / 1024).toFixed(1).padStart(6)} Mo  ${f}`);
 console.log(`[vercel] build prêt : .vercel/output — fonction API ${mb} Mo (${copied} fichiers natifs, modèle ${MODEL})`);
 if (Number(mb) > 245) throw new Error(`Fonction trop volumineuse pour Vercel (${mb} Mo > 250 Mo)`);
