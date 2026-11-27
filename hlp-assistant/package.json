@@ -14,7 +14,9 @@
     "ingest": "tsx server/rag/ingest.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "tunnel": "cloudflared tunnel --url http://localhost:3000",
-    "vercel-build": "vite build && node scripts/build-vercel.mjs"
+    "vercel-build": "vite build && node scripts/build-vercel.mjs",
+    "ingest:vercel": "tsx --env-file=.env.vercel server/rag/ingest.ts",
+    "push:turso": "tsx server/scripts/push-to-turso.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.2",

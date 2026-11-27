@@ -5,3 +5,7 @@ data/
 *.log
 .vercel/
 .tools/
+.env.vercel
+
+.vercel
+.env*
