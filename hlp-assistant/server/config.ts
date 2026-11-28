@@ -26,6 +26,8 @@ export const config = {
     fastModel: process.env.LLM_FAST_MODEL ?? 'openai/gpt-oss-20b',
     temperature: Number(process.env.LLM_TEMPERATURE ?? 0.3),
     maxSteps: Number(process.env.AGENT_MAX_STEPS ?? 6),
+    /** reasoning models (gpt-oss, o-series, gpt-5): low = much faster answers, plenty for answering from retrieved sources */
+    reasoningEffort: process.env.LLM_REASONING_EFFORT ?? 'low',
   },
 
   isVercel: Boolean(process.env.VERCEL),

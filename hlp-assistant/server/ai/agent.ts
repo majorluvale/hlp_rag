@@ -213,6 +213,7 @@ export async function runAgent(input: AgentInput) {
             stream: true,
             stream_options: { include_usage: true },
             ...(useTools ? { tools: TOOLS, tool_choice: 'auto' as const } : {}),
+            ...reasoningParams(cfg.model, cfg.reasoningEffort),
           },
           { signal: input.signal },
         );
@@ -260,10 +261,9 @@ export async function runAgent(input: AgentInput) {
           function: { name: c.name, arguments: c.args || '{}' },
         })),
       });
-      for (const [i, c] of validCalls.entries()) {
-        const result = await executeTool(c.name, parseJson<Record<string, string>>(c.args, {}), reg, tracer, emit, lang);
-        messages.push({ role: 'tool', tool_call_id: c.id || `call_${step}_${i}`, content: result });
-      }
+      // several tool calls in one step run in parallel (e.g. a knowledge search and a web search)
+      const results = await Promise.all(validCalls.map((c) => executeTool(c.name, parseJson<Record<string, string>>(c.args, {}), reg, tracer, emit, lang)));
+      validCalls.forEach((c, i) => messages.push({ role: 'tool', tool_call_id: c.id || `call_${step}_${i}`, content: results[i] }));
     }
 
     if (!answer.trim()) answer = msg(lang, 'answer.fallback');
@@ -277,6 +277,12 @@ export async function runAgent(input: AgentInput) {
     await tracer.finish({ answer, sources: reg.finalize(answer), error: msg }).catch(() => {});
     throw Object.assign(new Error(msg), { traceId: tracer.id });
   }
+}
+
+/** Reasoning models (gpt-oss, o-series, gpt-5) think less at a lower effort: the biggest latency lever. */
+function reasoningParams(model: string, effort: string): { reasoning_effort?: 'low' | 'medium' | 'high' } {
+  if (!/gpt-oss|^(openai\/)?o\d|gpt-5/i.test(model) || !['low', 'medium', 'high'].includes(effort)) return {};
+  return { reasoning_effort: effort as 'low' | 'medium' | 'high' };
 }
 
 async function executeTool(

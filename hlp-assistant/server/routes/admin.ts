@@ -9,7 +9,7 @@ import { requireRole } from '../auth/auth';
 import { langOf } from '../i18n';
 import { embeddingInfo } from '../rag/embeddings';
 import { ingestAll, ingestStatus } from '../rag/ingest';
-import { index } from '../rag/hybridIndex';
+import { index, markIndexSynced } from '../rag/hybridIndex';
 import { getLlmConfig, getSettings, maskSecret, setSettings } from '../settings';
 
 export const adminRouter = Router();
@@ -221,6 +221,7 @@ adminRouter.delete('/knowledge/:id', requireRole('admin'), async (req, res) => {
   const id = String(req.params.id);
   await batch([q('DELETE FROM chunks WHERE doc_id = ?', id), q('DELETE FROM documents WHERE id = ?', id)]);
   index.removeDoc(id);
+  await markIndexSynced();
   res.json({ ok: true });
 });
 
@@ -252,6 +253,7 @@ async function publicLlmSettings() {
     fastModel: cfg.fastModel,
     temperature: cfg.temperature,
     maxSteps: cfg.maxSteps,
+    reasoningEffort: cfg.reasoningEffort,
     hasApiKey: Boolean(cfg.apiKey),
     apiKeyHint: maskSecret(cfg.apiKey),
     source: cfg.source,
@@ -276,7 +278,7 @@ adminRouter.put('/settings/llm', requireRole('admin'), async (req, res) => {
     const b = req.body ?? {};
     if (b.reset === true) {
       await setSettings(
-        { 'llm.provider': null, 'llm.base_url': null, 'llm.api_key': null, 'llm.model': null, 'llm.fast_model': null, 'llm.temperature': null, 'llm.max_steps': null },
+        { 'llm.provider': null, 'llm.base_url': null, 'llm.api_key': null, 'llm.model': null, 'llm.fast_model': null, 'llm.temperature': null, 'llm.max_steps': null, 'llm.reasoning_effort': null },
         req.user.email ?? req.user.id,
       );
       return res.json({ llm: await publicLlmSettings() });
@@ -295,6 +297,7 @@ adminRouter.put('/settings/llm', requireRole('admin'), async (req, res) => {
         'llm.fast_model': String(b.fastModel ?? '').trim().slice(0, 200) || model.slice(0, 200),
         'llm.temperature': Number.isFinite(temperature) ? String(Math.min(2, Math.max(0, temperature))) : null,
         'llm.max_steps': Number.isFinite(maxSteps) ? String(Math.min(10, Math.max(1, Math.round(maxSteps)))) : null,
+        'llm.reasoning_effort': ['low', 'medium', 'high', 'off'].includes(b.reasoningEffort) ? b.reasoningEffort : null,
       },
       req.user.email ?? req.user.id,
     );

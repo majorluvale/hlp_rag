@@ -48,13 +48,23 @@ class HybridIndex {
     this.chunks.push({ ...c, tf, len: tokens.length });
   }
 
+  /** Removes a document's chunks, updating the BM25 statistics in place (no re-tokenisation). */
   removeDoc(docId: string) {
-    const keep = this.chunks.filter((c) => c.docId !== docId);
-    if (keep.length === this.chunks.length) return;
-    this.chunks = [];
-    this.df.clear();
-    this.totalLen = 0;
-    for (const c of keep) this.add(c);
+    if (!this.chunks.some((c) => c.docId === docId)) return;
+    const keep: IndexedChunk[] = [];
+    for (const c of this.chunks) {
+      if (c.docId !== docId) {
+        keep.push(c);
+        continue;
+      }
+      this.totalLen -= c.len;
+      for (const t of c.tf.keys()) {
+        const n = (this.df.get(t) ?? 1) - 1;
+        if (n > 0) this.df.set(t, n);
+        else this.df.delete(t);
+      }
+    }
+    this.chunks = keep;
   }
 
   clear() {
@@ -133,29 +143,48 @@ export const index = new HybridIndex();
 
 let lastSignature = '';
 let lastCheck = 0;
+/** documents currently in memory → their ingested_at, to reload only what changed */
+const loadedDocs = new Map<string, number>();
 
 async function signature() {
   const r = await get<{ n: number; m: number | null }>('SELECT COUNT(*) AS n, MAX(ingested_at) AS m FROM documents');
   return `${r?.n ?? 0}:${r?.m ?? 0}`;
 }
 
-/** Loads all chunks from the database into memory (fetch first, then swap synchronously). */
-export async function loadIndex() {
-  const sig = await signature();
-  const rows = await all<{
-    id: number;
-    doc_id: string;
-    page: number | null;
-    text: string;
-    embedding: Uint8Array;
-    title: string;
-    url: string | null;
-    source_type: string;
-  }>(
-    `SELECT c.id, c.doc_id, c.page, c.text, c.embedding, d.title, d.url, d.source_type
-     FROM chunks c JOIN documents d ON d.id = c.doc_id`,
-  );
-  index.clear();
+type ChunkRow = { id: number; doc_id: string; page: number | null; text: string; embedding: Uint8Array; title: string; url: string | null; source_type: string };
+
+/** Fetches the chunks of some documents, in groups of ~2,000 chunks queried in parallel (much faster over Turso's HTTP API). */
+async function fetchChunks(docs: { id: string; chunks: number }[]): Promise<ChunkRow[]> {
+  const groups: string[][] = [];
+  let cur: string[] = [];
+  let size = 0;
+  for (const d of docs) {
+    cur.push(d.id);
+    size += d.chunks;
+    if (size >= 2000) {
+      groups.push(cur);
+      cur = [];
+      size = 0;
+    }
+  }
+  if (cur.length) groups.push(cur);
+  const out: ChunkRow[] = [];
+  for (let i = 0; i < groups.length; i += 6) {
+    const parts = await Promise.all(
+      groups.slice(i, i + 6).map((ids) =>
+        all<ChunkRow>(
+          `SELECT c.id, c.doc_id, c.page, c.text, c.embedding, d.title, d.url, d.source_type
+           FROM chunks c JOIN documents d ON d.id = c.doc_id WHERE c.doc_id IN (${ids.map(() => '?').join(',')}) ORDER BY c.id`,
+          ...ids,
+        ),
+      ),
+    );
+    for (const p of parts) out.push(...p);
+  }
+  return out;
+}
+
+function addRows(rows: ChunkRow[]) {
   for (const r of rows) {
     index.add({
       id: Number(r.id),
@@ -168,21 +197,49 @@ export async function loadIndex() {
       vec: fromBlob(r.embedding),
     });
   }
+}
+
+const listDocs = () => all<{ id: string; chunks: number; ingested_at: number }>('SELECT id, chunks, ingested_at FROM documents WHERE chunks > 0');
+
+/** Loads all chunks from the database into memory (fetch first, then swap synchronously). */
+export async function loadIndex() {
+  const sig = await signature();
+  const docs = await listDocs();
+  const rows = await fetchChunks(docs);
+  index.clear();
+  loadedDocs.clear();
+  addRows(rows);
+  for (const d of docs) loadedDocs.set(d.id, Number(d.ingested_at));
   lastSignature = sig;
   lastCheck = Date.now();
   return index.size;
 }
 
 /**
- * Several serverless instances may run at once: every minute, check whether documents
- * changed elsewhere (new ingest, learned web page, removal) and reload if so.
+ * Several serverless instances may run at once: every minute, check whether documents changed elsewhere
+ * (new ingest, learned web page, removal) and apply only the difference — never a full reload.
  */
 export async function ensureFreshIndex() {
   if (Date.now() - lastCheck < 60_000) return;
   lastCheck = Date.now();
-  if ((await signature()) !== lastSignature) await loadIndex();
+  const sig = await signature();
+  if (sig === lastSignature) return;
+  const docs = await listDocs();
+  const current = new Map(docs.map((d) => [d.id, Number(d.ingested_at)]));
+  const changed = docs.filter((d) => loadedDocs.get(d.id) !== Number(d.ingested_at));
+  const rows = await fetchChunks(changed);
+  for (const id of loadedDocs.keys()) if (!current.has(id)) index.removeDoc(id);
+  for (const d of changed) index.removeDoc(d.id);
+  addRows(rows);
+  loadedDocs.clear();
+  for (const [id, at] of current) loadedDocs.set(id, at);
+  lastSignature = sig;
 }
 
+/** Called after this instance changed the documents itself (its index is already up to date). */
 export async function markIndexSynced() {
-  lastSignature = await signature();
+  const [sig, docs] = await Promise.all([signature(), listDocs()]);
+  lastSignature = sig;
+  loadedDocs.clear();
+  for (const d of docs) loadedDocs.set(d.id, Number(d.ingested_at));
 }

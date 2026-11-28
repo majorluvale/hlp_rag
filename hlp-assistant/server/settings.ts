@@ -66,6 +66,7 @@ export interface LlmConfig {
   fastModel: string;
   temperature: number;
   maxSteps: number;
+  reasoningEffort: string;
   source: 'console' | 'env';
 }
 
@@ -80,6 +81,7 @@ export async function getLlmConfig(): Promise<LlmConfig> {
     fastModel: s.get('llm.fast_model') ?? s.get('llm.model') ?? config.llm.fastModel,
     temperature: Number(s.get('llm.temperature') ?? config.llm.temperature),
     maxSteps: Number(s.get('llm.max_steps') ?? config.llm.maxSteps),
+    reasoningEffort: s.get('llm.reasoning_effort') ?? config.llm.reasoningEffort,
     source: fromConsole ? 'console' : 'env',
   };
 }

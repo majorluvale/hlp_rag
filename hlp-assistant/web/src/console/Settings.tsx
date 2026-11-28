@@ -9,6 +9,7 @@ interface LlmSettings {
   fastModel: string;
   temperature: number;
   maxSteps: number;
+  reasoningEffort: string;
   hasApiKey: boolean;
   apiKeyHint: string;
   source: 'console' | 'env';
@@ -30,7 +31,7 @@ export function Settings() {
   const { t } = useI18n();
   const [saved, setSaved] = useState<LlmSettings | null>(null);
   const [system, setSystem] = useState<any>(null);
-  const [form, setForm] = useState({ provider: 'groq', baseURL: '', apiKey: '', clearApiKey: false, model: '', fastModel: '', temperature: '0.3', maxSteps: '6' });
+  const [form, setForm] = useState({ provider: 'groq', baseURL: '', apiKey: '', clearApiKey: false, model: '', fastModel: '', temperature: '0.3', maxSteps: '6', reasoningEffort: 'low' });
   const [models, setModels] = useState<string[]>([]);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,6 +48,7 @@ export function Settings() {
       fastModel: s.fastModel,
       temperature: String(s.temperature),
       maxSteps: String(s.maxSteps),
+      reasoningEffort: s.reasoningEffort || 'low',
     });
   };
 
@@ -101,6 +103,7 @@ export function Settings() {
           fastModel: form.fastModel,
           temperature: Number(form.temperature),
           maxSteps: Number(form.maxSteps),
+          reasoningEffort: form.reasoningEffort,
         },
       });
       fill(r.llm);
@@ -175,6 +178,16 @@ export function Settings() {
           <label>
             {t('set.maxSteps')}
             <input type="number" min={1} max={10} value={form.maxSteps} onChange={set('maxSteps')} />
+          </label>
+          <label>
+            {t('set.reasoning')}
+            <select value={form.reasoningEffort} onChange={set('reasoningEffort')}>
+              <option value="low">{t('set.reasoning.low')}</option>
+              <option value="medium">{t('set.reasoning.medium')}</option>
+              <option value="high">{t('set.reasoning.high')}</option>
+              <option value="off">{t('set.reasoning.off')}</option>
+            </select>
+            <small className="muted">{t('set.reasoning.help')}</small>
           </label>
 
           {msg && <div className={`alert span2 ${msg.kind === 'ok' ? 'success' : msg.kind === 'info' ? 'info' : ''}`}>{msg.text}</div>}

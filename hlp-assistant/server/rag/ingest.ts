@@ -40,8 +40,9 @@ function listFiles(): string[] {
     if (!fs.existsSync(dir)) return;
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (SUPPORTED.test(e.name)) files.push(p);
+      if (e.isDirectory()) {
+        if (!e.name.startsWith('_')) walk(p); // _duplicates and other set-aside folders are skipped
+      } else if (SUPPORTED.test(e.name)) files.push(p);
     }
   };
   config.docsDirs.forEach(walk);

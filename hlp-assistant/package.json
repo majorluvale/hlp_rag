@@ -17,7 +17,8 @@
     "vercel-build": "vite build && node scripts/build-vercel.mjs",
     "ingest:vercel": "tsx --env-file=.env.vercel server/rag/ingest.ts",
     "push:turso": "tsx server/scripts/push-to-turso.ts",
-    "import:links": "tsx server/scripts/import-links.ts"
+    "import:links": "tsx server/scripts/import-links.ts",
+    "dedupe": "tsx server/scripts/dedupe.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.2",
