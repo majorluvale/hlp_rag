@@ -1,0 +1,14 @@
+# Vercel uploads the whole repository (Root Directory = hlp-assistant): keep only what the app needs
+.devcontainer
+chroma_langchain_db
+app.py
+requirements.txt
+hlp-assistant/node_modules
+hlp-assistant/dist
+hlp-assistant/data
+hlp-assistant/.tools
+hlp-assistant/.vercel
+hlp-assistant/.env
+hlp-assistant/.env.*
+.vercel
+*.log

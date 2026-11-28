@@ -1,0 +1,59 @@
+{
+  "name": "hlp-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Assistant IA agentique spécialisé HLP (Housing, Land and Property) — RAG hybride, recherche web de confiance, apprentissage par retours, observabilité.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"tsx watch server/index.ts\" \"vite\"",
+    "build": "vite build",
+    "start": "tsx server/index.ts",
+    "ingest": "tsx server/rag/ingest.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
+    "tunnel": "cloudflared tunnel --url http://localhost:3000",
+    "vercel-build": "vite build && node scripts/build-vercel.mjs",
+    "ingest:vercel": "tsx --env-file=.env.vercel server/rag/ingest.ts",
+    "push:turso": "tsx server/scripts/push-to-turso.ts",
+    "import:links": "tsx server/scripts/import-links.ts"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
+    "@libsql/client": "^0.18.0",
+    "@vercel/functions": "^3.12.0",
+    "cheerio": "^1.2.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "mammoth": "^1.13.0",
+    "nodemailer": "^10.6.1",
+    "openai": "^7.65.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "unpdf": "^2.2.3"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.11",
+    "@types/nodemailer": "^8.0.2",
+    "@types/react": "^19.3.3",
+    "@types/react-dom": "^19.3.0",
+    "@vercel/nft": "^1.11.16",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.4.0"
+  },
+  "allowScripts": {
+    "onnxruntime-node@1.30.0": true,
+    "esbuild@0.28.2": true,
+    "protobufjs@7.6.6": true
+  }
+}
