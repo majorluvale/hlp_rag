@@ -87,7 +87,9 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
 
 /* ---------- Navbar ---------- */
 .nav { position: sticky; top: 0; z-index: 20; background: var(--card); border-bottom: 1px solid var(--border); }
-.nav-inner { max-width: 1128px; margin: 0 auto; height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; }
+.nav-inner { max-width: 1440px; margin: 0 auto; height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; }
+.nav-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.burger { width: 38px; height: 38px; color: var(--text); }
 .brand { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .brand:hover { text-decoration: none; }
 .brand-logo { background: var(--blue); color: #fff; font-weight: 800; border-radius: 4px; padding: 6px 6px; font-size: 13px; letter-spacing: 0.02em; }
@@ -113,7 +115,10 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
 .brand-avatar { background: #0a66c2; color: #fff; border-radius: 8px; font-size: 12px; letter-spacing: 0.02em; }
 
 /* ---------- Layout ---------- */
-.layout { max-width: 1128px; margin: 24px auto; padding: 0 16px; display: grid; grid-template-columns: 225px minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
+.layout { max-width: 1440px; margin: 20px auto; padding: 0 20px; display: grid; grid-template-columns: 250px minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
+.layout.no-left { grid-template-columns: minmax(0, 1fr) 280px; }
+.layout.no-left .rail.left { display: none; }
+.drawer-backdrop { display: none; }
 .rail { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 90px); overflow: auto; }
 .card { background: var(--card); border-radius: 8px; box-shadow: var(--shadow); }
 .card-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 4px; }
@@ -308,17 +313,18 @@ textarea.code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; 
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1100px) {
-  .layout { grid-template-columns: 225px minmax(0, 1fr); }
+  .layout { grid-template-columns: 250px minmax(0, 1fr); }
+  .layout.no-left { grid-template-columns: minmax(0, 1fr); }
   .rail.right { display: none; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .traces, .prompts, .grid-2 { grid-template-columns: 1fr; }
   .trace-list { position: static; max-height: 420px; }
 }
 @media (max-width: 760px) {
-  .layout { grid-template-columns: minmax(0, 1fr); margin-top: 12px; }
-  .rail.left { position: static; max-height: none; }
-  .rail.left .profile-card { display: none; }
-  .conv-card { max-height: 180px; overflow: auto; }
+  .layout, .layout.no-left { grid-template-columns: minmax(0, 1fr); margin-top: 12px; padding: 0 12px; }
+  /* the side menu becomes a drawer opened with the burger */
+  .rail.left { position: fixed; top: 52px; left: 0; bottom: 0; width: min(300px, 86vw); max-height: none; z-index: 30; padding: 12px; background: var(--bg); box-shadow: 4px 0 16px rgba(0,0,0,.18); }
+  .drawer-backdrop { display: block; position: fixed; inset: 52px 0 0 0; background: rgba(0,0,0,.35); z-index: 25; }
   .brand-text small { display: none; }
   .nav-item { min-width: 56px; }
   .nav-item span:not(.avatar) { font-size: 11px; }

@@ -32,7 +32,7 @@ export const ingestStatus: IngestStatus = {
   finishedAt: null,
 };
 
-const SUPPORTED = /\.(pdf|txt|md)$/i;
+const SUPPORTED = /\.(pdf|txt|md|docx)$/i;
 
 function listFiles(): string[] {
   const files: string[] = [];
@@ -54,7 +54,36 @@ async function extractPages(file: string, buf: Buffer): Promise<string[]> {
     const { text } = await extractText(pdf, { mergePages: false });
     return (text as string[]).map(cleanText);
   }
+  if (/\.docx$/i.test(file)) {
+    const mammoth = await import('mammoth');
+    const { value } = await mammoth.extractRawText({ buffer: buf });
+    return [cleanText(value)];
+  }
   return [cleanText(buf.toString('utf8'))];
+}
+
+/** Original URL of a file, from the `_sources.json` written next to it by `npm run import:links`. */
+const sourceMaps = new Map<string, Record<string, string>>();
+function sourceUrl(file: string): string | null {
+  const dir = path.dirname(file);
+  if (!sourceMaps.has(dir)) {
+    const f = path.join(dir, '_sources.json');
+    try {
+      sourceMaps.set(dir, fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {});
+    } catch {
+      sourceMaps.set(dir, {});
+    }
+  }
+  return sourceMaps.get(dir)![path.basename(file)] ?? null;
+}
+
+/** Markdown files written by the importer start with "# Title": use it instead of the file name. */
+function fileTitle(file: string, buf: Buffer): string {
+  if (/\.md$/i.test(file)) {
+    const m = buf.toString('utf8', 0, 600).match(/^# (.+)$/m);
+    if (m) return m[1].trim().slice(0, 200);
+  }
+  return prettyTitle(path.basename(file));
 }
 
 /** Stores a document's chunks (with embeddings) and adds them to the live index. */
@@ -118,6 +147,7 @@ export async function addDocument(doc: {
 
 export async function ingestAll(): Promise<IngestStatus> {
   if (ingestStatus.running) return ingestStatus;
+  sourceMaps.clear();
   const files = listFiles();
   Object.assign(ingestStatus, { running: true, total: files.length, done: 0, added: 0, skipped: 0, errors: [], finishedAt: null });
   try {
@@ -133,9 +163,10 @@ export async function ingestAll(): Promise<IngestStatus> {
           const pages = await extractPages(file, buf);
           const n = await addDocument({
             id,
-            title: prettyTitle(path.basename(file)),
+            title: fileTitle(file, buf),
             sourceType: 'doc',
             path: path.basename(file),
+            url: sourceUrl(file),
             hash,
             pages: pages.map((text, i) => ({ page: pages.length > 1 ? i + 1 : null, text })),
           });

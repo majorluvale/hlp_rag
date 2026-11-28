@@ -6,6 +6,7 @@ const base = (d: ReactNode) => (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+export const IconMenu = base('M4 6h16M4 12h16M4 18h16');
 export const IconHome = base('M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z');
 export const IconChart = base('M4 20V10M10 20V4M16 20v-7M22 20H2');
 export const IconUser = base(<><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></>);

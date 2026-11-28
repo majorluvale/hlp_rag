@@ -4,11 +4,21 @@ import { ChatPage } from './components/ChatPage';
 import { LoginModal } from './components/LoginModal';
 import { ContextModal } from './components/ContextModal';
 import { Console } from './console/Console';
-import { IconChart, IconHome, IconLogout, IconShield, IconUser } from './components/Icons';
+import { IconChart, IconHome, IconLogout, IconMenu, IconShield, IconUser } from './components/Icons';
 import { ACRONYM, useI18n, type Lang } from './i18n';
 
 export type Route = 'chat' | 'console';
 const readRoute = (): Route => (location.hash.startsWith('#/console') ? 'console' : 'chat');
+const isNarrow = () => window.matchMedia('(max-width: 760px)').matches;
+const SIDEBAR_KEY = 'hlp.sidebar';
+const initialSidebar = () => {
+  if (isNarrow()) return false; // phones: the menu is a drawer, closed by default
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) !== 'closed';
+  } catch {
+    return true;
+  }
+};
 
 export function App() {
   const { t, lang, setLang } = useI18n();
@@ -18,6 +28,17 @@ export function App() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(initialSidebar);
+  const toggleSidebar = (open = !sidebarOpen) => {
+    setSidebarOpen(open);
+    if (!isNarrow()) {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed');
+      } catch {
+        /* storage unavailable */
+      }
+    }
+  };
 
   const refreshMe = useCallback(() => api<{ user: User }>('/me').then((r) => setUser(r.user)), []);
   const refreshConversations = useCallback(
@@ -51,13 +72,20 @@ export function App() {
     <div className="app">
       <header className="nav">
         <div className="nav-inner">
-          <a className="brand" href="#/">
-            <span className="brand-logo">{ACRONYM[lang]}</span>
-            <span className="brand-text">
-              <strong>{t('assistant.name')}</strong>
-              <small>{t('brand.tagline')}</small>
-            </span>
-          </a>
+          <div className="nav-left">
+            {route === 'chat' && (
+              <button className="icon-btn burger" onClick={() => toggleSidebar()} title={t('nav.toggleSidebar')} aria-label={t('nav.toggleSidebar')} aria-expanded={sidebarOpen}>
+                <IconMenu />
+              </button>
+            )}
+            <a className="brand" href="#/">
+              <span className="brand-logo">{ACRONYM[lang]}</span>
+              <span className="brand-text">
+                <strong>{t('assistant.name')}</strong>
+                <small>{t('brand.tagline')}</small>
+              </span>
+            </a>
+          </div>
           <nav className="nav-items">
             <a className={`nav-item ${route === 'chat' ? 'active' : ''}`} href="#/">
               <IconHome />
@@ -124,6 +152,8 @@ export function App() {
           refreshConversations={refreshConversations}
           onLogin={() => setLoginOpen(true)}
           onEditContext={() => setContextOpen(true)}
+          sidebarOpen={sidebarOpen}
+          onCloseSidebarOnMobile={() => isNarrow() && toggleSidebar(false)}
         />
       )}
 

@@ -7,6 +7,7 @@ const STORAGE_KEY = 'hlp.lang';
 const en = {
   'brand.tagline': 'Housing · Land · Property',
   'nav.home': 'Home',
+  'nav.toggleSidebar': 'Show or hide the side menu',
   'nav.observability': 'Observability',
   'nav.me': 'Me',
   'nav.language': 'Language',
@@ -282,6 +283,7 @@ type Key = keyof typeof en;
 const fr: Record<Key, string> = {
   'brand.tagline': 'Logement · Terre · Propriété',
   'nav.home': 'Accueil',
+  'nav.toggleSidebar': 'Afficher ou masquer le menu latéral',
   'nav.observability': 'Observabilité',
   'nav.me': 'Moi',
   'nav.language': 'Langue',

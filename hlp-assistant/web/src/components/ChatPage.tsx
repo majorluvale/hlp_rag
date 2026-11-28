@@ -14,9 +14,11 @@ interface Props {
   refreshConversations: () => Promise<void>;
   onLogin: () => void;
   onEditContext: () => void;
+  sidebarOpen: boolean;
+  onCloseSidebarOnMobile: () => void;
 }
 
-export function ChatPage({ user, conversations, refreshConversations, onLogin, onEditContext }: Props) {
+export function ChatPage({ user, conversations, refreshConversations, onLogin, onEditContext, sidebarOpen, onCloseSidebarOnMobile }: Props) {
   const { t, lang } = useI18n();
   const ago = (ms?: number) => (ms ? timeAgoT(t, ms, lang) : '');
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -105,8 +107,9 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
   const contextFilled = Boolean(p.jobTitle || p.organisation || p.country);
 
   return (
-    <main className="layout">
-      {/* ---------- Left rail: identity & conversations ---------- */}
+    <main className={`layout ${sidebarOpen ? '' : 'no-left'}`}>
+      {sidebarOpen && <div className="drawer-backdrop" onClick={onCloseSidebarOnMobile} />}
+      {/* ---------- Left rail: identity & conversations (collapsible with the navbar burger) ---------- */}
       <aside className="rail left">
         <section className="card profile-card">
           <div className="cover" />
@@ -132,7 +135,7 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
         <section className="card conv-card">
           <div className="card-head">
             <h3>{t('conv.title')}</h3>
-            <button className="icon-btn" title={t('conv.new')} onClick={newConversation}>
+            <button className="icon-btn" title={t('conv.new')} onClick={() => { newConversation(); onCloseSidebarOnMobile(); }}>
               <IconPlus />
             </button>
           </div>
@@ -140,7 +143,7 @@ export function ChatPage({ user, conversations, refreshConversations, onLogin, o
           <ul className="conv-list">
             {conversations.map((c) => (
               <li key={c.id} className={c.id === conversationId ? 'active' : ''}>
-                <button onClick={() => openConversation(c.id)} title={c.title}>
+                <button onClick={() => { openConversation(c.id); onCloseSidebarOnMobile(); }} title={c.title}>
                   <span className="conv-title">{c.title}</span>
                   <span className="muted xsmall">{ago(c.updatedAt)}</span>
                 </button>
